@@ -137,6 +137,13 @@ const doExport = async () => {
       </svg>
       <p class="text-slate-500">Ingresá una URL para empezar a scrapear los datos</p>
     </section>
+
+    <!-- Footer Credits -->
+    <footer class="mt-auto pt-2 flex justify-end shrink-0">
+      <p class="text-[10px] text-slate-400 font-medium tracking-wide">
+        By <span class="text-indigo-500/70">iCTG</span> • Powered by <span class="text-slate-500/70">Antigravity</span>
+      </p>
+    </footer>
   </main>
 </template>
 
