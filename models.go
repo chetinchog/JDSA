@@ -1,0 +1,12 @@
+package main
+
+type JobData struct {
+	JobID             string `json:"job_id"`
+	CompanyName       string `json:"company_name"`
+	JobTitle          string `json:"job_title"`
+	JobDescription    string `json:"job_description"`
+	Location          string `json:"location"`
+	ApplyURL          string `json:"apply_url"`
+	LinkedinCompanyID string `json:"linkedin_company_id"`
+	JobPosterEmail    string `json:"job_poster_email"`
+}

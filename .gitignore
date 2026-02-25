@@ -1,0 +1,35 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Wails specific
+build/bin/
+frontend/dist/
+frontend/node_modules/
+wailsjs/
+
+# Go specific
+vendor/
+go.sum
+*.test
+*.out
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS specific
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# Brain/Logs (Assistant artifacts)
+.gemini/
+brain/
+*.txt
+*.webp
