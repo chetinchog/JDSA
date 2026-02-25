@@ -1,8 +1,10 @@
 <script setup>
 import { reactive, ref, onMounted } from 'vue'
 import { ScrapeJob, ExportJSON } from '../wailsjs/go/backend/App'
+import SplashScreen from './components/SplashScreen.vue'
 
 const isDark = ref(false)
+const showSplash = ref(true)
 
 const toggleTheme = () => {
   isDark.value = !isDark.value
@@ -17,6 +19,10 @@ onMounted(() => {
     document.documentElement.classList.add('dark')
   }
 })
+
+const onSplashFinish = () => {
+  showSplash.value = false
+}
 
 const state = reactive({
   jobUrl: '',
@@ -59,7 +65,9 @@ const doExport = async () => {
 </script>
 
 <template>
-  <main class="h-screen p-6 pb-10 max-w-4xl mx-auto flex flex-col gap-6 overflow-hidden bg-slate-50/30 dark:bg-slate-900 transition-colors duration-300">
+  <SplashScreen v-if="showSplash" @finish="onSplashFinish" />
+  
+  <main v-else class="h-screen p-6 pb-10 max-w-4xl mx-auto flex flex-col gap-6 overflow-hidden bg-slate-50/30 dark:bg-slate-900 transition-colors duration-300">
     <!-- Header -->
     <header class="flex items-center gap-4 shrink-0">
       <div class="h-12 w-12 bg-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-200 dark:shadow-indigo-900/40">
