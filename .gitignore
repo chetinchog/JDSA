@@ -33,3 +33,6 @@ Desktop.ini
 brain/
 *.txt
 *.webp
+
+# Temporary files
+tmp/

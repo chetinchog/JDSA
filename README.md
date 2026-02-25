@@ -22,11 +22,12 @@ JDSA (Job Description Scraper Argentina) es una herramienta de escritorio modern
 ## 📦 Instalación y Uso
 
 ### Ejecutable (Windows)
-1. Descarga el archivo `JDSA.exe` desde la carpeta `.\release`.
-2. Ejecútalo directamente.
+Este repositorio **no incluye el archivo .exe** por razones de tamaño y seguridad. Para obtenerlo, tenés dos opciones:
+1. **Compilarlo vos mismo** siguiendo las instrucciones de abajo.
+2. **Descargarlo** desde la sección de **Releases** de este repositorio (si están disponibles).
 
 ### Desarrollo y Compilación
-Si deseas compilar el proyecto manualmente:
+Si deseás compilar el proyecto manualmente:
 
 1. Asegúrate de tener instalado **Go**, **Node.js** y **Wails CLI**.
 2. Clonar el repositorio.
