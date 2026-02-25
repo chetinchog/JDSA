@@ -11,7 +11,7 @@ const state = reactive({
 
 const doScrap = async () => {
   if (!state.jobUrl) {
-    state.error = 'Por favor, ingresá una URL de Indeed.'
+    state.error = 'Por favor, ingresá una URL válida.'
     return
   }
   
@@ -52,7 +52,7 @@ const doExport = async () => {
         </svg>
       </div>
       <div>
-        <h1 class="text-2xl font-bold text-slate-800 leading-tight">JDSA Scraper</h1>
+        <h1 class="text-2xl font-bold text-slate-800 leading-tight">JDSA Assistant</h1>
         <p class="text-sm text-slate-500">Extractor de Descripciones de Empleo</p>
       </div>
     </header>
@@ -66,7 +66,7 @@ const doExport = async () => {
             id="job-url"
             v-model="state.jobUrl"
             type="text" 
-            placeholder="Pegá el link de Indeed acá..."
+            placeholder="Pegá el link del empleo acá..."
             class="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all placeholder:text-slate-400 text-sm"
             @keyup.enter="doScrap"
           />
