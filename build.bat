@@ -14,7 +14,6 @@ wails build -o JDSA.exe
 if %errorlevel% neq 0 (
     echo.
     echo [ERROR] La compilacion fallo.
-    pause
     exit /b %errorlevel%
 )
 
@@ -24,4 +23,3 @@ move "build\bin\JDSA.exe" "release\JDSA.exe"
 
 echo.
 echo [EXITO] Build completado: .\release\JDSA.exe
-pause

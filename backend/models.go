@@ -1,4 +1,4 @@
-package main
+package backend
 
 type JobData struct {
 	JobID             string `json:"job_id"`

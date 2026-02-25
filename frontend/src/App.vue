@@ -1,6 +1,6 @@
 <script setup>
 import { reactive, ref } from 'vue'
-import { ScrapeJob, ExportJSON } from '../wailsjs/go/main/App'
+import { ScrapeJob, ExportJSON } from '../wailsjs/go/backend/App'
 
 const state = reactive({
   jobUrl: '',
