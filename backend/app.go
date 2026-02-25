@@ -4,14 +4,44 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/gocolly/colly/v2"
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
+
+// isValidJobURL validates the target URL before scraping.
+func isValidJobURL(rawURL string) error {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("URL inválida: %v", err)
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return fmt.Errorf("solo se permiten URLs HTTP/HTTPS")
+	}
+	if u.Host == "" {
+		return fmt.Errorf("la URL no tiene host")
+	}
+	// Block localhost and private IPs
+	host := u.Hostname()
+	blockedHosts := []string{"localhost", "127.0.0.1", "0.0.0.0", "[::1]"}
+	for _, b := range blockedHosts {
+		if strings.EqualFold(host, b) {
+			return fmt.Errorf("no se permiten URLs locales")
+		}
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() {
+			return fmt.Errorf("no se permiten URLs a redes privadas")
+		}
+	}
+	return nil
+}
 
 // App struct
 type App struct {
@@ -32,6 +62,12 @@ func (a *App) Startup(ctx context.Context) {
 // ScrapeJob extracts job information from a given URL
 func (a *App) ScrapeJob(targetURL string) (JobData, error) {
 	var job JobData
+
+	// Validate URL before proceeding
+	if err := isValidJobURL(targetURL); err != nil {
+		return job, err
+	}
+
 	job.ApplyURL = targetURL
 
 	// Parse Job ID from URL
@@ -42,7 +78,9 @@ func (a *App) ScrapeJob(targetURL string) (JobData, error) {
 
 	c := colly.NewCollector(
 		colly.UserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"),
+		colly.MaxDepth(1),
 	)
+	c.SetRequestTimeout(30 * time.Second)
 
 	// Set realistic headers
 	c.OnRequest(func(r *colly.Request) {
@@ -117,11 +155,6 @@ func (a *App) ScrapeJob(targetURL string) (JobData, error) {
 					locality, _ := addr["addressLocality"].(string)
 					region, _ := addr["addressRegion"].(string)
 
-					// Map "B" to "Buenos Aires" if it's Indeed's shorthand
-					if region == "B" {
-						region = "Buenos Aires"
-					}
-
 					if locality != "" && region != "" {
 						if job.Location == "" {
 							job.Location = fmt.Sprintf("%s, %s", locality, region)
@@ -194,15 +227,25 @@ func cleanScrapedText(input string, preserveNewlines bool) string {
 
 // ExportJSON saves the job data as a JSON file
 func (a *App) ExportJSON(job JobData) error {
+	// Build a safe default filename
+	filename := "job_export.json"
+	if job.JobID != "" {
+		filename = fmt.Sprintf("job_%s.json", job.JobID)
+	}
+
 	path, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
-		DefaultFilename: fmt.Sprintf("job_%s.json", job.JobID),
+		DefaultFilename: filename,
 		Title:           "Exportar Información de Empleo",
 		Filters: []runtime.FileFilter{
 			{DisplayName: "JSON Files (*.json)", Pattern: "*.json"},
 		},
 	})
-	if err != nil || path == "" {
+	if err != nil {
 		return err
+	}
+	if path == "" {
+		// User cancelled the dialog
+		return nil
 	}
 
 	data, err := json.MarshalIndent(job, "", "  ")

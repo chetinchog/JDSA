@@ -7,6 +7,6 @@ type JobData struct {
 	JobDescription    string `json:"job_description"`
 	Location          string `json:"location"`
 	ApplyURL          string `json:"apply_url"`
-	LinkedinCompanyID string `json:"linkedin_company_id"`
-	JobPosterEmail    string `json:"job_poster_email"`
+	LinkedinCompanyID string `json:"linkedin_company_id,omitempty"`
+	JobPosterEmail    string `json:"job_poster_email,omitempty"`
 }

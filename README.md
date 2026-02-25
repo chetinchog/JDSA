@@ -6,14 +6,16 @@ JDSA es una herramienta de escritorio moderna diseñada para extraer y organizar
 
 - **Extracción Precisa**: Captura Título, Empresa, Ubicación, ID de Empleo y URL de postulación.
 - **Descripción Completa**: Recupera la descripción íntegra del puesto manteniendo el formato y saltos de línea originales.
+- **Modo Claro/Oscuro**: Tema oscuro con toggle, persiste la preferencia y detecta el tema del sistema.
 - **Diseño Moderno**: Interfaz Material Design construida con Vue 3 y Tailwind CSS v4.
 - **Navegación Fluida**: Diseño de alto fijo con scroll interno especializado para descripciones largas.
 - **Exportación**: Guarda los datos scrapeados directamente en archivos JSON estructurados.
+- **Seguridad**: Validación de URLs con protección contra SSRF (bloquea IPs privadas, localhost, esquemas no-HTTP).
 - **Anti-Bloqueo**: Implementa headers dinámicos y respaldo en datos estructurados (JSON-LD) para máxima estabilidad.
 
 ## 🛠️ Tecnologías
 
-- **Backend**: [Go](https://go.dev/) + [Colly](http://go-colly.org/h)
+- **Backend**: [Go 1.26](https://go.dev/) + [Colly](http://go-colly.org/)
 - **Frontend**: [Vue.js 3](https://vuejs.org/) + [Tailwind CSS v4](https://tailwindcss.com/)
 - **Desktop Framework**: [Wails v2](https://wails.io/)
 

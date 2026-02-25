@@ -14,7 +14,6 @@ wailsjs/
 
 # Go specific
 vendor/
-go.sum
 *.test
 *.out
 
@@ -32,8 +31,11 @@ Desktop.ini
 # Brain/Logs (Assistant artifacts)
 .gemini/
 brain/
-*.txt
+*.log
 *.webp
+
+# Build output
+release/
 
 # Temporary files
 tmp/

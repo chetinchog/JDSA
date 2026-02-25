@@ -1,5 +1,7 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 :root {
     --wails-font-family: 'Inter', system-ui, -apple-system, sans-serif;
 }
@@ -9,7 +11,11 @@ body {
     padding: 0;
     font-family: var(--wails-font-family);
     background-color: #f8fafc;
-    /* bg-slate-50 */
     color: #0f172a;
-    /* text-slate-900 */
+    transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+.dark body {
+    background-color: #0f172a;
+    color: #e2e8f0;
 }

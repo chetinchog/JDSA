@@ -2,6 +2,7 @@ package main
 
 import (
 	"embed"
+	"log"
 
 	"github.com/wailsapp/wails/v2"
 	"github.com/wailsapp/wails/v2/pkg/options"
@@ -19,7 +20,7 @@ func main() {
 
 	// Create application with options
 	err := wails.Run(&options.App{
-		Title:  "jdsa",
+		Title:  "JDSA",
 		Width:  1024,
 		Height: 768,
 		AssetServer: &assetserver.Options{
@@ -33,6 +34,6 @@ func main() {
 	})
 
 	if err != nil {
-		println("Error:", err.Error())
+		log.Fatal("Error starting application: ", err)
 	}
 }
