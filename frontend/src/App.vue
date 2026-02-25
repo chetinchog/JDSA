@@ -139,9 +139,12 @@ const doExport = async () => {
     </section>
 
     <!-- Footer Credits -->
-    <footer class="mt-auto pt-2 flex justify-end shrink-0">
-      <p class="text-[10px] text-slate-400 font-medium tracking-wide">
-        By <span class="text-indigo-500/70">iCTG</span> • Powered by <span class="text-slate-500/70">Antigravity</span>
+    <footer class="fixed bottom-4 right-6 flex flex-col items-end opacity-60 hover:opacity-100 transition-opacity">
+      <p class="text-[9px] text-slate-400 font-bold uppercase tracking-widest leading-tight">
+        By <span class="text-indigo-500">iCTG</span>
+      </p>
+      <p class="text-[9px] text-slate-400 font-medium tracking-tight leading-tight">
+        Powered by <span class="text-slate-500">Antigravity</span>
       </p>
     </footer>
   </main>
