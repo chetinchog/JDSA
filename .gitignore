@@ -11,6 +11,7 @@ build/bin/
 frontend/dist/
 frontend/node_modules/
 wailsjs/
+frontend/package.json.md5
 
 # Go specific
 vendor/
