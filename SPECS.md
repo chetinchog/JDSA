@@ -15,6 +15,8 @@ JDSA is a desktop application designed to scrape job descriptions from various j
 1. **Scrape Job Data:**
    - Input: Job Post URL (validated — HTTP/HTTPS only, no private IPs).
    - Output: JSON object with specific fields.
+   - **Scraper Selection:** Strategy pattern — the scraper is selected based on the URL host (e.g., `indeed` → `IndeedScraper`).
+   - **Supported URL formats (Indeed):** `/viewjob?jk=...` and `/jobs?...&vjk=...` (search results).
 2. **Display Information:**
    - Material Design inspired UI with light/dark mode toggle.
    - Formatted view of the scraped data.
@@ -23,6 +25,7 @@ JDSA is a desktop application designed to scrape job descriptions from various j
 
 ## Data Schema (JSON)
 The scraper targets the following fields:
+- `is_expired`: Whether the job post is expired (boolean).
 - `job_id`: Unique identifier from the source URL.
 - `company_name`: Name of the hiring company.
 - `job_title`: Title of the position.

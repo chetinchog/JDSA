@@ -1,6 +1,7 @@
 package backend
 
 type JobData struct {
+	IsExpired         bool   `json:"is_expired"`
 	JobID             string `json:"job_id"`
 	CompanyName       string `json:"company_name"`
 	JobTitle          string `json:"job_title"`

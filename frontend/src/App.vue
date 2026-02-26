@@ -126,7 +126,10 @@ const doExport = async () => {
     <section v-if="state.result" class="flex-1 min-h-0 bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 overflow-hidden flex flex-col animate-in fade-in slide-in-from-bottom-4 duration-500 transition-colors">
       <!-- Title and Export -->
       <div class="p-5 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center bg-slate-50/50 dark:bg-slate-800/50 shrink-0">
-        <h2 class="text-lg font-bold text-slate-800 dark:text-slate-100 truncate pr-4">{{ state.result.job_title }}</h2>
+        <div class="flex items-center gap-2 min-w-0 pr-4 flex-1">
+          <h2 class="text-lg font-bold text-slate-800 dark:text-slate-100 truncate min-w-0">{{ state.result.job_title || 'Sin título' }}</h2>
+          <span v-if="state.result.is_expired" class="shrink-0 px-2.5 py-0.5 text-[10px] font-bold rounded-full bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400 uppercase tracking-wider border border-red-200 dark:border-red-800/50">Expirado</span>
+        </div>
         <button 
           @click="doExport"
           class="shrink-0 flex items-center gap-2 px-4 py-2 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 font-semibold rounded-lg transition-colors border border-emerald-100 dark:border-emerald-800 text-sm"

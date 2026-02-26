@@ -123,3 +123,59 @@ func TestCleanScrapedText(t *testing.T) {
 		})
 	}
 }
+
+// --- Strategy Pattern Tests ---
+
+func TestScraperRegistry_GetScraper(t *testing.T) {
+	registry := NewScraperRegistry(&IndeedScraper{})
+
+	tests := []struct {
+		name    string
+		host    string
+		wantErr bool
+	}{
+		{"indeed ar", "ar.indeed.com", false},
+		{"indeed www", "www.indeed.com", false},
+		{"indeed plain", "indeed.com", false},
+		{"linkedin", "www.linkedin.com", true},
+		{"unknown", "example.com", true},
+		{"empty", "", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			scraper, err := registry.GetScraper(tt.host)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("GetScraper(%q) error = %v, wantErr %v", tt.host, err, tt.wantErr)
+			}
+			if !tt.wantErr && scraper == nil {
+				t.Errorf("GetScraper(%q) returned nil scraper, expected non-nil", tt.host)
+			}
+		})
+	}
+}
+
+func TestIndeedScraper_CanHandle(t *testing.T) {
+	s := &IndeedScraper{}
+
+	tests := []struct {
+		host string
+		want bool
+	}{
+		{"ar.indeed.com", true},
+		{"www.indeed.com", true},
+		{"indeed.com", true},
+		{"www.linkedin.com", false},
+		{"example.com", false},
+		{"", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.host, func(t *testing.T) {
+			got := s.CanHandle(tt.host)
+			if got != tt.want {
+				t.Errorf("CanHandle(%q) = %v, want %v", tt.host, got, tt.want)
+			}
+		})
+	}
+}

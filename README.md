@@ -11,6 +11,7 @@ JDSA es una herramienta de escritorio moderna diseñada para extraer y organizar
 - **Navegación Fluida**: Diseño de alto fijo con scroll interno especializado para descripciones largas.
 - **Exportación**: Guarda los datos scrapeados directamente en archivos JSON estructurados.
 - **Seguridad**: Validación de URLs con protección contra SSRF (bloquea IPs privadas, localhost, esquemas no-HTTP).
+- **Detección de Vacantes Expiradas**: Identifica automáticamente empleos que ya no están disponibles mediante señales de metadatos, selectores de alerta y datos estructurados, mostrando un badge de "Expirado".
 - **Anti-Bloqueo**: Implementa headers dinámicos y respaldo en datos estructurados (JSON-LD) para máxima estabilidad.
 
 ## 🛠️ Tecnologías
