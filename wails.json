@@ -9,5 +9,11 @@
   "author": {
     "name": "Martin",
     "email": "chetinchog@yahoo.com"
+  },
+  "info": {
+    "productName": "JDSA",
+    "productVersion": "0.1.0",
+    "copyright": "Copyright (C) 2026",
+    "comments": "Job Data Scraper Assistant"
   }
 }
