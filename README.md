@@ -5,7 +5,7 @@ JDSA es una herramienta de escritorio moderna diseñada para extraer y organizar
 ## 🚀 Características
 
 - **Extracción Precisa**: Captura Título, Empresa, Ubicación, ID de Empleo y URL de postulación.
-- **Búsqueda Masiva**: Permite buscar resultados masivos e iterar sobre ellos, exportando el listado completo automáticamente.
+- **Búsqueda Masiva**: Permite buscar resultados masivos e iterar sobre ellos, exportando el listado completo automáticamente. Ahora con ordenamiento cronológico (más recientes primero) y manejo seguro de búsquedas sin resultados.
 - **Desduplicación Inteligente**: Descarta internamente registros orgánicos y patrocinados clonados para evitar basura en la exportación final.
 - **Aislamiento de Errores**: Filtra vacantes que resultan inaccesibles durante operaciones masivas (404/Not Found) notificando un resumen limpio.
 - **Descripción Completa**: Recupera la descripción íntegra del puesto manteniendo el formato y saltos de línea originales.

@@ -68,8 +68,8 @@ const doBulkScrap = async () => {
 
   try {
     const res = await BulkScrape(state.bulkQuery, state.bulkPlatform)
-    state.bulkResults = res
-    if (res.length === 0) {
+    state.bulkResults = res || []
+    if (state.bulkResults.length === 0) {
         state.error = 'No se encontraron empleos para esa búsqueda.'
     }
   } catch (err) {
