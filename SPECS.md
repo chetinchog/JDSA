@@ -22,6 +22,7 @@ JDSA is a desktop application designed to scrape job descriptions from various j
    - Formatted view of the scraped data.
 3. **Export Data:**
    - Button to download the scraped information as a `.json` file.
+   - Bulk Export functionality, generating JSONs that exclude 404/Not Found and deduplicate duplicate jobs (Organic vs Sponsored).
 
 ## Data Schema (JSON)
 The scraper targets the following fields:

@@ -196,6 +196,10 @@ func (a *App) ExportBulkJSON(query string, results []SearchResult) error {
 	}
 
 	total := len(results)
+	successCount := 0
+	errorCount := 0
+	var errorDetails []string
+
 	for i, res := range results {
 		// Construct the Indeed URL
 		url := fmt.Sprintf("https://ar.indeed.com/viewjob?jk=%s", res.JobID)
@@ -203,16 +207,15 @@ func (a *App) ExportBulkJSON(query string, results []SearchResult) error {
 		jobData, err := scraper.Scrape(url)
 		if err == nil && jobData.JobTitle != "" {
 			fullJobs = append(fullJobs, jobData)
+			successCount++
 		} else {
-			// If scrape fails, at least save the summary data we have
-			fullJobs = append(fullJobs, JobData{
-				JobID:          res.JobID,
-				JobTitle:       res.Title,
-				CompanyName:    res.Company,
-				Location:       res.Location,
-				ApplyURL:       url,
-				JobDescription: fmt.Sprintf("Error extrayendo descripción completa: %v", err),
-			})
+			// If scrape fails, we do not add it to the file.
+			errorCount++
+			errMsg := "Error leyendo título/descripción"
+			if err != nil {
+				errMsg = err.Error()
+			}
+			errorDetails = append(errorDetails, fmt.Sprintf("- %s (ID: %s): %s", res.Title, res.JobID, errMsg))
 		}
 
 		// Emit progress to the frontend
@@ -225,10 +228,38 @@ func (a *App) ExportBulkJSON(query string, results []SearchResult) error {
 		time.Sleep(2 * time.Second)
 	}
 
-	data, err := json.MarshalIndent(fullJobs, "", "  ")
-	if err != nil {
-		return err
+	// Make sure we have something to save
+	if len(fullJobs) > 0 {
+		data, marshalErr := json.MarshalIndent(fullJobs, "", "  ")
+		if marshalErr != nil {
+			return marshalErr
+		}
+
+		if writeErr := os.WriteFile(path, data, 0644); writeErr != nil {
+			return writeErr
+		}
 	}
 
-	return os.WriteFile(path, data, 0644)
+	// Show summary to the user
+	msg := fmt.Sprintf("Se exportaron %d empleos exitosamente.", successCount)
+	dialogType := runtime.InfoDialog
+	title := "Exportación Completada"
+
+	if errorCount > 0 {
+		msg += fmt.Sprintf("\n\nHubo %d errores:\n%s", errorCount, strings.Join(errorDetails, "\n"))
+		dialogType = runtime.WarningDialog
+		title = "Resumen de Exportación (con advertencias)"
+	} else if len(fullJobs) == 0 {
+		msg = "No se pudo exportar ningún empleo."
+		dialogType = runtime.ErrorDialog
+		title = "Error de Exportación"
+	}
+
+	_, _ = runtime.MessageDialog(a.ctx, runtime.MessageDialogOptions{
+		Type:    dialogType,
+		Title:   title,
+		Message: msg,
+	})
+
+	return nil
 }

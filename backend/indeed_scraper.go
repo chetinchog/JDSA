@@ -226,23 +226,33 @@ func (s *IndeedScraper) ScrapeSearch(query string) ([]SearchResult, error) {
 
 		// Find Job ID from the link
 		link := e.DOM.Find("a.jcs-JobTitle")
-		href, exists := link.Attr("href")
-		if exists {
-			u, _ := url.Parse(href)
-			res.JobID = u.Query().Get("jk")
-		}
 
-		// Skip if we couldn't find an ID or if we have already seen this job
-		if res.JobID == "" || seenIDs[res.JobID] {
-			return
+		jk, hasJk := link.Attr("data-jk")
+		if hasJk && jk != "" {
+			res.JobID = jk
+		} else {
+			href, hasHref := link.Attr("href")
+			if hasHref {
+				u, _ := url.Parse(href)
+				res.JobID = u.Query().Get("jk")
+			}
 		}
 
 		res.Title = strings.TrimSpace(link.Text())
 		res.Company = strings.TrimSpace(e.DOM.Find("[data-testid='company-name']").Text())
 		res.Location = strings.TrimSpace(e.DOM.Find("[data-testid='text-location']").Text())
 
+		// Create a composite key to detect sponsored vs organic duplicates which often have distinct IDs
+		dupeKey := fmt.Sprintf("%s|%s", strings.ToLower(res.Title), strings.ToLower(res.Company))
+
+		// Skip if we couldn't find an ID or if we have already seen this job ID or title+company combo
+		if res.JobID == "" || seenIDs[res.JobID] || seenIDs[dupeKey] {
+			return
+		}
+
 		if res.Title != "" {
 			seenIDs[res.JobID] = true
+			seenIDs[dupeKey] = true
 			results = append(results, res)
 		}
 	})
