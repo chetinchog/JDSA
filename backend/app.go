@@ -223,9 +223,6 @@ func (a *App) ExportBulkJSON(query string, results []SearchResult) error {
 			"current": i + 1,
 			"total":   total,
 		})
-
-		// Add a delay between requests to avoid getting blocked (403 Forbidden)
-		time.Sleep(2 * time.Second)
 	}
 
 	// Make sure we have something to save
