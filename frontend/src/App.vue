@@ -1,6 +1,7 @@
 <script setup>
 import { reactive, ref, onMounted } from 'vue'
-import { ScrapeJob, ExportJSON } from '../wailsjs/go/backend/App'
+import { ScrapeJob, ExportJSON, BulkScrape, ExportBulkJSON } from '../wailsjs/go/backend/App'
+import { EventsOn } from '../wailsjs/runtime/runtime'
 import SplashScreen from './components/SplashScreen.vue'
 
 const isDark = ref(false)
@@ -18,6 +19,14 @@ onMounted(() => {
     isDark.value = true
     document.documentElement.classList.add('dark')
   }
+
+  // Listen for export progress
+  EventsOn('export-progress', (data) => {
+    state.isExporting = true
+    state.exportCurrent = data.current
+    state.exportTotal = data.total
+    state.exportProgress = data.total > 0 ? (data.current / data.total) * 100 : 0
+  })
 })
 
 const onSplashFinish = () => {
@@ -25,11 +34,85 @@ const onSplashFinish = () => {
 }
 
 const state = reactive({
+  mode: 'bulk', // 'single' | 'bulk'
   jobUrl: '',
+  bulkQuery: '',
+  bulkPlatform: 'indeed',
   loading: false,
   error: '',
-  result: null
+  result: null, // Scraped job details
+  bulkResults: [], // List of jobs from search
+  isPlatformDropdownOpen: false,
+  isExporting: false,
+  exportProgress: 0,
+  exportCurrent: 0,
+  exportTotal: 0
 })
+
+const setMode = (mode) => {
+  state.mode = mode
+  state.error = ''
+  // Reset results when switching modes? Maybe better to keep them?
+  // Let's keep them for now, but clear error.
+}
+
+const doBulkScrap = async () => {
+  if (!state.bulkQuery) {
+    state.error = 'Por favor, ingresá una búsqueda.'
+    return
+  }
+  
+  state.loading = true
+  state.error = ''
+  state.bulkResults = []
+
+  try {
+    const res = await BulkScrape(state.bulkQuery, state.bulkPlatform)
+    state.bulkResults = res
+    if (res.length === 0) {
+        state.error = 'No se encontraron empleos para esa búsqueda.'
+    }
+  } catch (err) {
+    state.error = 'Error al buscar: ' + err
+  } finally {
+    state.loading = false
+  }
+}
+
+const selectJob = async (jobId) => {
+  // Construct a URL for the specific job to reuse ScrapeJob
+  // Indeed URLs for jk are like: https://ar.indeed.com/viewjob?jk=...
+  const url = `https://ar.indeed.com/viewjob?jk=${jobId}`
+  state.jobUrl = url
+  state.loading = true
+  state.error = ''
+  state.result = null
+
+  try {
+    const res = await ScrapeJob(url)
+    state.result = res
+    if (!res.job_title) {
+        state.error = 'No se pudo extraer información del empleo.'
+    }
+  } catch (err) {
+    state.error = 'Error al scrapear: ' + err
+  } finally {
+    state.loading = false
+  }
+}
+
+const doBulkExport = async () => {
+  if (state.bulkResults.length === 0) return
+  try {
+    await ExportBulkJSON(state.bulkQuery, state.bulkResults)
+  } catch (err) {
+    state.error = 'Error al exportar: ' + err
+  } finally {
+    setTimeout(() => {
+      state.isExporting = false
+    }, 2000)
+  }
+}
 
 const doScrap = async () => {
   if (!state.jobUrl) {
@@ -67,7 +150,7 @@ const doExport = async () => {
 <template>
   <SplashScreen v-if="showSplash" @finish="onSplashFinish" />
   
-  <main v-else class="h-screen p-6 pb-10 max-w-4xl mx-auto flex flex-col gap-6 overflow-hidden bg-slate-50/30 dark:bg-slate-900 transition-colors duration-300">
+  <main v-else class="h-screen w-full p-6 pb-10 flex flex-col gap-6 overflow-hidden bg-slate-50/30 dark:bg-slate-900 transition-colors duration-300">
     <!-- Header -->
     <header class="flex items-center gap-4 shrink-0">
       <div class="h-12 w-12 bg-indigo-600 rounded-xl flex items-center justify-center shadow-lg shadow-indigo-200 dark:shadow-indigo-900/40">
@@ -75,9 +158,28 @@ const doExport = async () => {
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
         </svg>
       </div>
-      <div class="flex-1">
-        <h1 class="text-2xl font-bold text-slate-800 dark:text-slate-100 leading-tight">JDSA Assistant</h1>
-        <p class="text-sm text-slate-500 dark:text-slate-400">Extractor de Descripciones de Empleo</p>
+      <div class="flex-1 flex items-center justify-between">
+        <div class="flex flex-col">
+          <h1 class="text-2xl font-bold text-slate-800 dark:text-slate-100 leading-tight">JDSA Assistant</h1>
+          <p class="text-sm text-slate-500 dark:text-slate-400">Extractor de Descripciones de Empleo</p>
+        </div>
+        <!-- Mode Switcher moved here -->
+        <div class="flex gap-2 p-1 bg-slate-100 dark:bg-slate-800 rounded-xl w-fit shrink-0">
+          <button 
+            @click="setMode('bulk')"
+            :class="state.mode === 'bulk' ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 shadow-sm' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'"
+            class="px-4 py-1.5 rounded-lg text-xs font-bold transition-all"
+          >
+            Masivo
+          </button>
+          <button 
+            @click="setMode('single')"
+            :class="state.mode === 'single' ? 'bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 shadow-sm' : 'text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'"
+            class="px-4 py-1.5 rounded-lg text-xs font-bold transition-all"
+          >
+            Individual
+          </button>
+        </div>
       </div>
       <!-- Theme Toggle -->
       <button 
@@ -95,9 +197,10 @@ const doExport = async () => {
         </svg>
       </button>
     </header>
-
+    
     <!-- Scraper Input Card -->
-    <section class="bg-white dark:bg-slate-800 rounded-2xl p-5 shadow-sm border border-slate-100 dark:border-slate-700 flex flex-col gap-4 shrink-0 transition-colors">
+    <!-- Scraper Input Card (Single) -->
+    <section v-if="state.mode === 'single'" class="bg-white dark:bg-slate-800 rounded-2xl p-5 shadow-sm border border-slate-100 dark:border-slate-700 flex flex-col gap-4 shrink-0 transition-colors">
       <div class="flex flex-col gap-2">
         <label for="job-url" class="text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">URL del Empleo</label>
         <div class="flex gap-3">
@@ -122,72 +225,301 @@ const doExport = async () => {
       </div>
     </section>
 
-    <!-- Result Display -->
-    <section v-if="state.result" class="flex-1 min-h-0 bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 overflow-hidden flex flex-col animate-in fade-in slide-in-from-bottom-4 duration-500 transition-colors">
-      <!-- Title and Export -->
-      <div class="p-5 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center bg-slate-50/50 dark:bg-slate-800/50 shrink-0">
-        <div class="flex items-center gap-2 min-w-0 pr-4 flex-1">
-          <h2 class="text-lg font-bold text-slate-800 dark:text-slate-100 truncate min-w-0">{{ state.result.job_title || 'Sin título' }}</h2>
-          <span v-if="state.result.is_expired" class="shrink-0 px-2.5 py-0.5 text-[10px] font-bold rounded-full bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400 uppercase tracking-wider border border-red-200 dark:border-red-800/50">Expirado</span>
+    <!-- Scraper Input Card (Bulk) -->
+    <section v-else class="bg-white dark:bg-slate-800 rounded-2xl p-5 shadow-sm border border-slate-100 dark:border-slate-700 flex flex-col gap-4 shrink-0 transition-colors">
+      <div class="flex flex-col gap-2">
+        <label for="bulk-query" class="text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500">Búsqueda de Empleos</label>
+        <div class="flex gap-3 relative">
+          <!-- Backdrop for dropdown -->
+          <div 
+            v-if="state.isPlatformDropdownOpen" 
+            class="fixed inset-0 z-40" 
+            @click="state.isPlatformDropdownOpen = false"
+          ></div>
+          
+          <div class="relative z-50">
+            <button 
+              @click="state.isPlatformDropdownOpen = !state.isPlatformDropdownOpen"
+              class="w-[120px] h-full px-4 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-600/50 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all text-sm flex items-center justify-between"
+              :class="{ 'ring-2 ring-indigo-500 border-transparent': state.isPlatformDropdownOpen }"
+            >
+              <span class="truncate pr-2 font-medium">{{ state.bulkPlatform === 'indeed' ? 'Indeed' : state.bulkPlatform }}</span>
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-slate-500 dark:text-slate-400 shrink-0 transition-transform duration-200" :class="{ 'rotate-180': state.isPlatformDropdownOpen }" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+            
+            <div 
+              v-if="state.isPlatformDropdownOpen"
+              class="absolute top-[calc(100%+0.5rem)] left-0 w-full bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-xl shadow-xl shadow-slate-200/50 dark:shadow-black/20 overflow-hidden flex flex-col animate-in fade-in slide-in-from-top-2 duration-200"
+            >
+              <button 
+                @click="state.bulkPlatform = 'indeed'; state.isPlatformDropdownOpen = false"
+                class="w-full text-left px-4 py-3 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors"
+                :class="{ 'font-semibold bg-indigo-50/50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300': state.bulkPlatform === 'indeed' }"
+              >
+                Indeed
+              </button>
+            </div>
+          </div>
+          <input 
+            id="bulk-query"
+            v-model="state.bulkQuery"
+            type="text" 
+            placeholder="Ej: Data Analyst, Software Engineer..."
+            class="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all placeholder:text-slate-400 dark:placeholder:text-slate-500 text-sm"
+            @keyup.enter="doBulkScrap"
+          />
+          <button 
+            @click="doBulkScrap"
+            :disabled="state.loading"
+            class="px-6 py-2.5 bg-indigo-600 text-white font-semibold rounded-xl hover:bg-indigo-700 active:scale-95 disabled:opacity-50 disabled:active:scale-100 transition-all shadow-md shadow-indigo-100 dark:shadow-indigo-900/30 flex items-center gap-2 text-sm"
+          >
+            <span v-if="state.loading" class="animate-spin h-3.5 w-3.5 border-2 border-white/30 border-t-white rounded-full"></span>
+            {{ state.loading ? 'Buscando...' : 'Buscar' }}
+          </button>
         </div>
-        <button 
-          @click="doExport"
-          class="shrink-0 flex items-center gap-2 px-4 py-2 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 font-semibold rounded-lg transition-colors border border-emerald-100 dark:border-emerald-800 text-sm"
-        >
-          <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a2 2 0 002 2h12a2 2 0 002-2v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-          </svg>
-          Exportar
-        </button>
+        <p v-if="state.error" class="text-xs text-red-500 dark:text-red-400 mt-1">{{ state.error }}</p>
       </div>
+    </section>
+
+    <!-- Main Content Area -->
+    <div class="flex-1 flex gap-6 min-h-0 relative">
       
-      <div class="flex-1 flex flex-col p-5 gap-5 min-h-0 overflow-hidden">
-        <!-- Info Grid (Company, Location, ID, URL) -->
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-3 shrink-0">
-          <div class="p-3 bg-slate-50 dark:bg-slate-700/50 rounded-lg border border-slate-100/50 dark:border-slate-600/50">
-            <p class="text-[10px] font-bold uppercase text-slate-400 dark:text-slate-500 mb-0.5">Empresa</p>
-            <p class="text-sm text-slate-700 dark:text-slate-200 font-semibold truncate leading-tight">{{ state.result.company_name || 'No disponible' }}</p>
+      <!-- Left Column / Single Area -->
+      <div 
+        class="flex-1 flex flex-col min-w-0 transition-all duration-300"
+        :class="{ 'w-1/2 flex-none': state.mode === 'bulk' && state.bulkResults.length > 0 }"
+      >
+        <!-- Bulk Results Table -->
+        <section v-if="state.mode === 'bulk' && state.bulkResults.length > 0" class="flex-1 min-h-0 bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 overflow-hidden flex flex-col animate-in fade-in slide-in-from-bottom-4 duration-500 transition-colors">
+          <div class="p-4 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center bg-slate-50/50 dark:bg-slate-800/50 shrink-0">
+            <h2 class="text-sm font-bold text-slate-800 dark:text-slate-100">Resultados de Búsqueda ({{ state.bulkResults.length }})</h2>
+            <button 
+              @click="doBulkExport"
+              class="shrink-0 flex items-center gap-2 px-3 py-1.5 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 font-semibold rounded-lg transition-colors border border-emerald-100 dark:border-emerald-800 text-xs"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a2 2 0 002 2h12a2 2 0 002-2v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+              Exportar Lista
+            </button>
           </div>
-          <div class="p-3 bg-slate-50 dark:bg-slate-700/50 rounded-lg border border-slate-100/50 dark:border-slate-600/50">
-            <p class="text-[10px] font-bold uppercase text-slate-400 dark:text-slate-500 mb-0.5">Ubicación</p>
-            <p class="text-sm text-slate-700 dark:text-slate-200 font-semibold truncate leading-tight">{{ state.result.location || 'No disponible' }}</p>
+          <div class="flex-1 overflow-auto custom-scrollbar">
+            <table class="w-full text-left text-sm border-collapse">
+              <thead class="sticky top-0 bg-slate-50 dark:bg-slate-900 z-10">
+                <tr class="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 border-b border-slate-100 dark:border-slate-800">
+                  <th class="px-5 py-3">Título</th>
+                  <th class="px-5 py-3">Empresa</th>
+                  <th class="px-5 py-3">Ubicación</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-50 dark:divide-slate-800">
+                <tr 
+                  v-for="job in state.bulkResults" 
+                  :key="job.job_id"
+                  @click="selectJob(job.job_id)"
+                  class="hover:bg-indigo-50/30 dark:hover:bg-indigo-900/10 cursor-pointer transition-colors group"
+                  :class="state.result?.job_id === job.job_id ? 'bg-indigo-50/50 dark:bg-indigo-900/20' : ''"
+                >
+                  <td class="px-5 py-3 font-medium text-slate-800 dark:text-slate-200 group-hover:text-indigo-600 dark:group-hover:text-indigo-400">{{ job.title }}</td>
+                  <td class="px-5 py-3 text-slate-500 dark:text-slate-400">{{ job.company }}</td>
+                  <td class="px-5 py-3 text-slate-500 dark:text-slate-400 italic text-xs">{{ job.location }}</td>
+                </tr>
+              </tbody>
+            </table>
           </div>
-          <div class="p-3 bg-slate-50 dark:bg-slate-700/50 rounded-lg border border-slate-100/50 dark:border-slate-600/50">
-            <p class="text-[10px] font-bold uppercase text-slate-400 dark:text-slate-500 mb-0.5">ID del Empleo</p>
-            <p class="text-xs text-slate-500 dark:text-slate-400 font-mono truncate">{{ state.result.job_id || 'No disponible' }}</p>
-          </div>
-          <div class="p-3 bg-slate-50 dark:bg-slate-700/50 rounded-lg border border-slate-100/50 dark:border-slate-600/50">
-            <p class="text-[10px] font-bold uppercase text-slate-400 dark:text-slate-500 mb-0.5">URL de Postulación</p>
-            <a :href="state.result.apply_url" target="_blank" class="text-xs text-indigo-600 dark:text-indigo-400 truncate block hover:underline leading-tight">{{ state.result.apply_url }}</a>
-          </div>
-        </div>
+        </section>
 
-        <!-- Job Description Scrollable Area -->
-        <div class="flex-1 flex flex-col min-h-0">
-          <h3 class="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-3 shrink-0">Descripción del Empleo</h3>
-          <div class="flex-1 overflow-y-auto pr-3 custom-scrollbar text-slate-700 dark:text-slate-300 leading-relaxed whitespace-pre-wrap text-sm border-t border-slate-50 dark:border-slate-700 pt-4">
-            {{ state.result.job_description }}
+        <!-- Empty State (No Results or Initial State) -->
+        <section v-else-if="!state.loading && state.mode === 'bulk' && state.bulkResults.length === 0" class="flex-1 flex flex-col items-center justify-center text-center opacity-40 bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-16 w-16 text-slate-300 dark:text-slate-600 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+          </svg>
+          <p class="text-slate-500 dark:text-slate-400">Ingresá una búsqueda para encontrar empleos</p>
+        </section>
+
+        <!-- Result Display (Individual Mode Only) -->
+        <section v-if="state.mode === 'single' && state.result" class="flex-1 min-h-0 bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 overflow-hidden flex flex-col animate-in fade-in slide-in-from-bottom-4 duration-500 transition-colors">
+          <div class="p-5 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center bg-slate-50/50 dark:bg-slate-800/50 shrink-0">
+            <div class="flex items-center gap-2 min-w-0 pr-4 flex-1">
+              <h2 class="text-lg font-bold text-slate-800 dark:text-slate-100 truncate min-w-0">{{ state.result.job_title || 'Sin título' }}</h2>
+              <span v-if="state.result.is_expired" class="shrink-0 px-2.5 py-0.5 text-[10px] font-bold rounded-full bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400 uppercase tracking-wider border border-red-200 dark:border-red-800/50">Expirado</span>
+            </div>
+            <button 
+              @click="doExport"
+              class="shrink-0 flex items-center gap-2 px-4 py-2 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 font-semibold rounded-lg transition-colors border border-emerald-100 dark:border-emerald-800 text-sm"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a2 2 0 002 2h12a2 2 0 002-2v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+              Exportar
+            </button>
+          </div>
+          
+          <div class="flex-1 flex flex-col p-5 gap-5 min-h-0 overflow-hidden">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3 shrink-0">
+              <div class="p-3 bg-slate-50 dark:bg-slate-700/50 rounded-lg border border-slate-100/50 dark:border-slate-600/50">
+                <p class="text-[10px] font-bold uppercase text-slate-400 dark:text-slate-500 mb-0.5">Empresa</p>
+                <p class="text-sm text-slate-700 dark:text-slate-200 font-semibold truncate leading-tight">{{ state.result.company_name || 'No disponible' }}</p>
+              </div>
+              <div class="p-3 bg-slate-50 dark:bg-slate-700/50 rounded-lg border border-slate-100/50 dark:border-slate-600/50">
+                <p class="text-[10px] font-bold uppercase text-slate-400 dark:text-slate-500 mb-0.5">Ubicación</p>
+                <p class="text-sm text-slate-700 dark:text-slate-200 font-semibold truncate leading-tight">{{ state.result.location || 'No disponible' }}</p>
+              </div>
+              <div class="p-3 bg-slate-50 dark:bg-slate-700/50 rounded-lg border border-slate-100/50 dark:border-slate-600/50">
+                <p class="text-[10px] font-bold uppercase text-slate-400 dark:text-slate-500 mb-0.5">ID del Empleo</p>
+                <p class="text-xs text-slate-500 dark:text-slate-400 font-mono truncate">{{ state.result.job_id || 'No disponible' }}</p>
+              </div>
+              <div class="p-3 bg-slate-50 dark:bg-slate-700/50 rounded-lg border border-slate-100/50 dark:border-slate-600/50">
+                <p class="text-[10px] font-bold uppercase text-slate-400 dark:text-slate-500 mb-0.5">URL de Postulación</p>
+                <a :href="state.result.apply_url" target="_blank" class="text-xs text-indigo-600 dark:text-indigo-400 truncate block hover:underline leading-tight">{{ state.result.apply_url }}</a>
+              </div>
+            </div>
+
+            <div class="flex-1 flex flex-col min-h-0">
+              <h3 class="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-3 shrink-0">Descripción del Empleo</h3>
+              <div class="flex-1 overflow-y-auto pr-3 custom-scrollbar text-slate-700 dark:text-slate-300 leading-relaxed whitespace-pre-wrap text-sm border-t border-slate-50 dark:border-slate-700 pt-4">
+                {{ state.result.job_description }}
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Empty State (Single Mode) -->
+        <section v-else-if="!state.loading && state.mode === 'single'" class="flex-1 flex flex-col items-center justify-center text-center opacity-40 bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700">
+          <svg xmlns="http://www.w3.org/2000/svg" class="h-16 w-16 text-slate-300 dark:text-slate-600 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
+          </svg>
+          <p class="text-slate-500 dark:text-slate-400">Ingresá una URL para empezar a scrapear los datos</p>
+        </section>
+      </div>
+
+      <!-- Right Column / Bulk Result Area -->
+      <div 
+        v-if="state.mode === 'bulk' && state.result" 
+        class="flex-1 flex flex-col min-w-0 bg-white dark:bg-slate-800 rounded-2xl shadow-sm border border-slate-100 dark:border-slate-700 overflow-hidden animate-in fade-in slide-in-from-right-4 duration-500 transition-all"
+      >
+        <div class="p-4 border-b border-slate-100 dark:border-slate-700 flex justify-between items-center bg-slate-50/50 dark:bg-slate-800/50 shrink-0">
+          <div class="flex items-center gap-2 min-w-0 pr-4 flex-1">
+            <button 
+              @click="state.result = null"
+              class="mr-1 p-1.5 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 transition-colors shrink-0"
+              title="Cerrar descripción"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+            <h2 class="text-base font-bold text-slate-800 dark:text-slate-100 truncate min-w-0">{{ state.result.job_title || 'Sin título' }}</h2>
+            <span v-if="state.result.is_expired" class="shrink-0 px-2 py-0.5 text-[9px] font-bold rounded-full bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-400 uppercase tracking-wider border border-red-200 dark:border-red-800/50">Expirado</span>
+          </div>
+          <button 
+            @click="doExport"
+            class="shrink-0 flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400 hover:bg-emerald-100 dark:hover:bg-emerald-900/50 font-semibold rounded-lg transition-colors border border-emerald-100 dark:border-emerald-800 text-xs"
+          >
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a2 2 0 002 2h12a2 2 0 002-2v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+            </svg>
+            Exportar
+          </button>
+        </div>
+        
+        <div class="flex-1 flex flex-col p-4 gap-4 min-h-0 overflow-hidden">
+          <div class="grid grid-cols-1 gap-2 shrink-0">
+            <div class="flex gap-2">
+              <div class="flex-1 p-2 bg-slate-50 dark:bg-slate-700/50 rounded-lg border border-slate-100/50 dark:border-slate-600/50">
+                <p class="text-[9px] font-bold uppercase text-slate-400 dark:text-slate-500 mb-0.5">Empresa</p>
+                <p class="text-xs text-slate-700 dark:text-slate-200 font-semibold truncate leading-tight">{{ state.result.company_name || 'No disponible' }}</p>
+              </div>
+              <div class="flex-1 p-2 bg-slate-50 dark:bg-slate-700/50 rounded-lg border border-slate-100/50 dark:border-slate-600/50">
+                <p class="text-[9px] font-bold uppercase text-slate-400 dark:text-slate-500 mb-0.5">Ubicación</p>
+                <p class="text-xs text-slate-700 dark:text-slate-200 font-semibold truncate leading-tight">{{ state.result.location || 'No disponible' }}</p>
+              </div>
+            </div>
+            <div class="flex gap-2">
+              <div class="w-1/3 p-2 bg-slate-50 dark:bg-slate-700/50 rounded-lg border border-slate-100/50 dark:border-slate-600/50">
+                <p class="text-[9px] font-bold uppercase text-slate-400 dark:text-slate-500 mb-0.5">ID</p>
+                <p class="text-[10px] text-slate-500 dark:text-slate-400 font-mono truncate">{{ state.result.job_id || 'No disponible' }}</p>
+              </div>
+              <div class="flex-1 p-2 bg-slate-50 dark:bg-slate-700/50 rounded-lg border border-slate-100/50 dark:border-slate-600/50 min-w-0">
+                <p class="text-[9px] font-bold uppercase text-slate-400 dark:text-slate-500 mb-0.5">URL</p>
+                <a :href="state.result.apply_url" target="_blank" class="text-[10px] text-indigo-600 dark:text-indigo-400 truncate block hover:underline leading-tight">{{ state.result.apply_url }}</a>
+              </div>
+            </div>
+          </div>
+
+          <div class="flex-1 flex flex-col min-h-0">
+            <h3 class="text-[10px] font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 mb-2 shrink-0">Descripción del Empleo</h3>
+            <div class="flex-1 overflow-y-auto pr-3 custom-scrollbar text-slate-700 dark:text-slate-300 leading-relaxed whitespace-pre-wrap text-[13px] border-t border-slate-50 dark:border-slate-700 pt-3">
+              {{ state.result.job_description }}
+            </div>
           </div>
         </div>
       </div>
-    </section>
-
-    <!-- Empty State -->
-    <section v-else-if="!state.loading" class="flex-1 flex flex-col items-center justify-center text-center opacity-40">
-      <svg xmlns="http://www.w3.org/2000/svg" class="h-16 w-16 text-slate-300 dark:text-slate-600 mb-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" />
-      </svg>
-      <p class="text-slate-500 dark:text-slate-400">Ingresá una URL para empezar a scrapear los datos</p>
-    </section>
+    </div>
 
     <!-- Footer Credits -->
-    <footer class="fixed bottom-3 right-6 opacity-50 hover:opacity-100 transition-opacity">
+    <footer class="fixed bottom-3 right-6 opacity-50 hover:opacity-100 transition-opacity z-10">
       <p class="text-[9px] text-slate-400 dark:text-slate-500 font-medium tracking-wide">
         By <span class="font-bold text-indigo-500 dark:text-indigo-400">iCTG</span>
         <span class="mx-1">-</span>
         Powered by <span class="font-bold text-slate-500 dark:text-slate-400">Antigravity</span>
       </p>
     </footer>
+
+    <!-- Export Progress Overlay -->
+    <div v-if="state.isExporting" class="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/80 backdrop-blur-sm animate-in fade-in duration-300">
+      <div class="bg-white dark:bg-slate-800 p-8 rounded-3xl shadow-2xl max-w-md w-full mx-4 border border-slate-100 dark:border-slate-700 flex flex-col items-center justify-center gap-6 animate-in zoom-in-95 duration-500 delay-100">
+        <!-- Animated Icon Container -->
+        <div class="relative w-24 h-24 mb-2 flex items-center justify-center">
+          <!-- Outer rotating ring -->
+          <div class="absolute inset-0 border-4 border-indigo-100 dark:border-indigo-900/50 rounded-full"></div>
+          <div class="absolute inset-0 border-4 border-indigo-500 rounded-full border-t-transparent animate-spin" style="animation-duration: 2s;"></div>
+          
+          <!-- Inner bouncing icon -->
+          <div class="animate-bounce mt-1">
+            <svg v-if="state.exportProgress < 100" xmlns="http://www.w3.org/2000/svg" class="h-10 w-10 text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+            </svg>
+            <svg v-else xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+            </svg>
+          </div>
+        </div>
+
+        <!-- Text constraints -->
+        <div class="text-center flex flex-col gap-2">
+          <h2 class="text-2xl font-bold bg-gradient-to-r from-indigo-600 to-indigo-400 bg-clip-text text-transparent">
+            {{ state.exportProgress === 100 ? '¡Exportación completada!' : 'Exportando empleos...' }}
+          </h2>
+          <p class="text-slate-500 dark:text-slate-400 text-sm max-w-[280px] mx-auto">
+            {{ state.exportProgress === 100 ? 'Todos los datos han sido guardados.' : 'Exportando los detalles de las Descripciones de Empleo' }}
+          </p>
+        </div>
+
+        <!-- Progress Bar -->
+        <div class="w-full space-y-2 mt-2">
+          <div class="flex justify-between text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+            <span>{{ state.exportProgress < 100 ? 'Progreso' : '¡Listo!' }}</span>
+            <span>{{ state.exportCurrent }} / {{ state.exportTotal }}</span>
+          </div>
+          <div class="h-3 w-full bg-slate-100 dark:bg-slate-700/50 rounded-full overflow-hidden shadow-inner flex">
+            <div 
+              class="h-full bg-indigo-500 relative transition-all duration-300 ease-out"
+              :class="state.exportProgress === 100 ? 'bg-emerald-500' : ''"
+              :style="{ width: `${state.exportProgress}%` }"
+            >
+              <!-- Animated shimmering effect -->
+              <div class="absolute top-0 bottom-0 w-24 bg-gradient-to-r from-transparent via-white/30 to-transparent -translate-x-full animate-[shimmer_1.5s_infinite] skew-x-[-20deg]"></div>
+            </div>
+          </div>
+          <div class="text-center pt-1 font-bold text-lg" :class="state.exportProgress === 100 ? 'text-emerald-500' : 'text-indigo-600 dark:text-indigo-400'">
+            {{ Math.round(state.exportProgress) }}%
+          </div>
+        </div>
+      </div>
+    </div>
   </main>
 </template>
 
@@ -220,6 +552,12 @@ const doExport = async () => {
 @keyframes slideInUp {
   from { transform: translateY(1rem); opacity: 0; }
   to { transform: translateY(0); opacity: 1; }
+}
+
+@keyframes shimmer {
+  0% { left: -100px; }
+  50% { left: 100%; }
+  100% { left: -100px; }
 }
 
 .animate-in {

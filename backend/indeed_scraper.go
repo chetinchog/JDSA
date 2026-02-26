@@ -60,9 +60,9 @@ func (s *IndeedScraper) Scrape(targetURL string) (JobData, error) {
 		r.Headers.Set("Sec-Ch-Ua-Platform", `"Windows"`)
 		r.Headers.Set("Sec-Fetch-Dest", "document")
 		r.Headers.Set("Sec-Fetch-Mode", "navigate")
-		r.Headers.Set("Sec-Fetch-Site", "none")
 		r.Headers.Set("Sec-Fetch-User", "?1")
 		r.Headers.Set("Upgrade-Insecure-Requests", "1")
+		r.Headers.Set("Referer", "https://ar.indeed.com/")
 	})
 
 	// Job Title Selectors
@@ -192,4 +192,65 @@ func (s *IndeedScraper) Scrape(targetURL string) (JobData, error) {
 	}
 
 	return job, nil
+}
+
+// ScrapeSearch extracts a list of jobs from a search query on Indeed.
+func (s *IndeedScraper) ScrapeSearch(query string) ([]SearchResult, error) {
+	var results []SearchResult
+	searchURL := fmt.Sprintf("https://ar.indeed.com/jobs?q=%s", url.QueryEscape(query))
+
+	c := colly.NewCollector(
+		colly.UserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"),
+	)
+	c.SetRequestTimeout(30 * time.Second)
+
+	c.OnRequest(func(r *colly.Request) {
+		r.Headers.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7")
+		r.Headers.Set("Accept-Language", "es-AR,es;q=0.9,en;q=0.8")
+		r.Headers.Set("Cache-Control", "max-age=0")
+		r.Headers.Set("Connection", "keep-alive")
+		r.Headers.Set("Sec-Ch-Ua", `"Not A(Bit:Major";v="99", "Google Chrome";v="121", "Chromium";v="121"`)
+		r.Headers.Set("Sec-Ch-Ua-Mobile", "?0")
+		r.Headers.Set("Sec-Ch-Ua-Platform", `"Windows"`)
+		r.Headers.Set("Sec-Fetch-Dest", "document")
+		r.Headers.Set("Sec-Fetch-Mode", "navigate")
+		r.Headers.Set("Sec-Fetch-User", "?1")
+		r.Headers.Set("Upgrade-Insecure-Requests", "1")
+		r.Headers.Set("Referer", "https://ar.indeed.com/")
+	})
+
+	seenIDs := make(map[string]bool)
+
+	c.OnHTML("div.job_seen_beacon", func(e *colly.HTMLElement) {
+		var res SearchResult
+
+		// Find Job ID from the link
+		link := e.DOM.Find("a.jcs-JobTitle")
+		href, exists := link.Attr("href")
+		if exists {
+			u, _ := url.Parse(href)
+			res.JobID = u.Query().Get("jk")
+		}
+
+		// Skip if we couldn't find an ID or if we have already seen this job
+		if res.JobID == "" || seenIDs[res.JobID] {
+			return
+		}
+
+		res.Title = strings.TrimSpace(link.Text())
+		res.Company = strings.TrimSpace(e.DOM.Find("[data-testid='company-name']").Text())
+		res.Location = strings.TrimSpace(e.DOM.Find("[data-testid='text-location']").Text())
+
+		if res.Title != "" {
+			seenIDs[res.JobID] = true
+			results = append(results, res)
+		}
+	})
+
+	err := c.Visit(searchURL)
+	if err != nil {
+		return nil, fmt.Errorf("error visiting search URL: %v", err)
+	}
+
+	return results, nil
 }

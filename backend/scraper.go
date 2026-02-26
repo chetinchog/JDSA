@@ -11,6 +11,8 @@ type Scraper interface {
 	CanHandle(host string) bool
 	// Scrape extracts job data from the given URL.
 	Scrape(targetURL string) (JobData, error)
+	// ScrapeSearch extracts a list of jobs from a search query.
+	ScrapeSearch(query string) ([]SearchResult, error)
 }
 
 // ScraperRegistry holds all registered scrapers and selects the right one.

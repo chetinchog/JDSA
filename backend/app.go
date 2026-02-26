@@ -9,6 +9,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -85,6 +86,17 @@ func (a *App) ScrapeJob(targetURL string) (JobData, error) {
 	return scraper.Scrape(targetURL)
 }
 
+// BulkScrape searches for jobs on a specific platform.
+func (a *App) BulkScrape(query string, platform string) ([]SearchResult, error) {
+	// For now, we only support Indeed
+	scraper, err := a.registry.GetScraper(platform)
+	if err != nil {
+		return nil, err
+	}
+
+	return scraper.ScrapeSearch(query)
+}
+
 // cleanScrapedText removes CSS blocks {...}, CSS classes, and HTML tags from the text
 func cleanScrapedText(input string, preserveNewlines bool) string {
 	// 1. Remove CSS blocks like {color: red; ...}
@@ -120,11 +132,12 @@ func cleanScrapedText(input string, preserveNewlines bool) string {
 
 // ExportJSON saves the job data as a JSON file
 func (a *App) ExportJSON(job JobData) error {
-	// Build a safe default filename
-	filename := "job_export.json"
-	if job.JobID != "" {
-		filename = fmt.Sprintf("job_%s.json", job.JobID)
+	now := time.Now().Format("200601021504")
+	jobIDStr := job.JobID
+	if jobIDStr == "" {
+		jobIDStr = "UNKNOWN"
 	}
+	filename := fmt.Sprintf("JOB_%s_%s.json", now, jobIDStr)
 
 	path, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
 		DefaultFilename: filename,
@@ -142,6 +155,77 @@ func (a *App) ExportJSON(job JobData) error {
 	}
 
 	data, err := json.MarshalIndent(job, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(path, data, 0644)
+}
+
+// ExportBulkJSON saves the list of jobs found in search as a JSON file, fetching full details for each
+func (a *App) ExportBulkJSON(query string, results []SearchResult) error {
+	now := time.Now().Format("200601021504")
+	strQuery := strings.ToUpper(query)
+	re := regexp.MustCompile(`[^A-Z0-9]+`)
+	strQuery = re.ReplaceAllString(strQuery, "_")
+	strQuery = strings.Trim(strQuery, "_")
+	if strQuery == "" {
+		strQuery = "EMPLEOS"
+	}
+	defaultName := fmt.Sprintf("BULK_%s_%s.json", now, strQuery)
+
+	path, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
+		DefaultFilename: defaultName,
+		Title:           "Exportar Lista Completa de Empleos",
+		Filters: []runtime.FileFilter{
+			{DisplayName: "JSON Files (*.json)", Pattern: "*.json"},
+		},
+	})
+	if err != nil {
+		return err
+	}
+	if path == "" {
+		return nil
+	}
+
+	// Fetch full details for each job
+	var fullJobs []JobData
+	scraper, err := a.registry.GetScraper("indeed.com") // Assume Indeed for now as it's the only bulk source
+	if err != nil {
+		return fmt.Errorf("could not get scraper for full data: %v", err)
+	}
+
+	total := len(results)
+	for i, res := range results {
+		// Construct the Indeed URL
+		url := fmt.Sprintf("https://ar.indeed.com/viewjob?jk=%s", res.JobID)
+
+		jobData, err := scraper.Scrape(url)
+		if err == nil && jobData.JobTitle != "" {
+			fullJobs = append(fullJobs, jobData)
+		} else {
+			// If scrape fails, at least save the summary data we have
+			fullJobs = append(fullJobs, JobData{
+				JobID:          res.JobID,
+				JobTitle:       res.Title,
+				CompanyName:    res.Company,
+				Location:       res.Location,
+				ApplyURL:       url,
+				JobDescription: fmt.Sprintf("Error extrayendo descripción completa: %v", err),
+			})
+		}
+
+		// Emit progress to the frontend
+		runtime.EventsEmit(a.ctx, "export-progress", map[string]interface{}{
+			"current": i + 1,
+			"total":   total,
+		})
+
+		// Add a delay between requests to avoid getting blocked (403 Forbidden)
+		time.Sleep(2 * time.Second)
+	}
+
+	data, err := json.MarshalIndent(fullJobs, "", "  ")
 	if err != nil {
 		return err
 	}

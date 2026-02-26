@@ -11,3 +11,9 @@ type JobData struct {
 	LinkedinCompanyID string `json:"linkedin_company_id,omitempty"`
 	JobPosterEmail    string `json:"job_poster_email,omitempty"`
 }
+type SearchResult struct {
+	JobID    string `json:"job_id"`
+	Title    string `json:"title"`
+	Company  string `json:"company"`
+	Location string `json:"location"`
+}
