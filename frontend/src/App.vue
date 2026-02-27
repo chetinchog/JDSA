@@ -1,6 +1,6 @@
 <script setup>
 import { reactive, ref, onMounted } from 'vue'
-import { ScrapeJob, ExportJSON, BulkScrape, ExportBulkJSON, OpenURL } from '../wailsjs/go/backend/App'
+import { ScrapeJob, ExportJSON, BulkScrape, ExportBulkJSON, OpenURL, SetSessionCookie } from '../wailsjs/go/backend/App'
 import { EventsOn } from '../wailsjs/runtime/runtime'
 import SplashScreen from './components/SplashScreen.vue'
 import ScrapingLoader from './components/ScrapingLoader.vue'
@@ -92,7 +92,9 @@ const state = reactive({
   nextOffset: 0,
   hasMore: false,
   isSearching: false,
-  isBlockedByLogin: false
+  isBlockedByLogin: false,
+  manualCookie: '',
+  showCookieInput: false
 })
 
 const setMode = (mode) => {
@@ -147,10 +149,61 @@ const doBulkScrap = async (isNew = true) => {
   }
 }
 
+const doNinjaSearch = async () => {
+    state.loading = true
+    state.isSearching = true
+    state.isBlockedByLogin = false
+    state.error = ''
+    
+    // Variations to bypass pagination limits
+    const variations = ['', 'junior', 'senior', 'remote', 'remoto', 'hibrido']
+    const baseQuery = state.bulkQuery
+    
+    try {
+        for (const variant of variations) {
+            const query = variant ? `${baseQuery} ${variant}` : baseQuery
+            // We only fetch page 1 (offset 0) for each variation to avoid blocks
+            const res = await BulkScrape(query, state.bulkPlatform, 0)
+            if (res.results && res.results.length > 0) {
+                // Add unique results
+                res.results.forEach(newJob => {
+                    if (!state.bulkResults.find(j => j.jobId === newJob.jobId)) {
+                        state.bulkResults.push(newJob)
+                    }
+                })
+            }
+            // Add a small breather
+            await new Promise(r => setTimeout(r, 500))
+        }
+        
+        if (state.bulkResults.length === 0) {
+            state.error = 'No se encontraron resultados incluso con búsqueda expandida.'
+        }
+    } catch (err) {
+        state.error = 'Error en Búsqueda Ninja: ' + err
+    } finally {
+        state.loading = false
+        state.isSearching = false
+    }
+}
+
 const handleOpenLogin = () => {
     // Open Indeed in results page
     const url = `https://ar.indeed.com/jobs?q=${encodeURIComponent(state.bulkQuery)}`
     OpenURL(url)
+}
+
+const handleSaveCookie = async () => {
+    if (!state.manualCookie) return
+    try {
+        await SetSessionCookie(state.bulkPlatform, state.manualCookie)
+        state.isBlockedByLogin = false
+        state.showCookieInput = false
+        // Trigger scraping again
+        doBulkScrap(false)
+    } catch (err) {
+        state.error = 'Error al guardar cookie: ' + err
+    }
 }
 
 const selectJob = async (jobId) => {
@@ -377,23 +430,66 @@ const doExport = async () => {
         <p v-if="state.error" class="text-xs text-red-500 dark:text-red-400 mt-1">{{ state.error }}</p>
 
         <!-- Login Alert -->
-        <div v-if="state.isBlockedByLogin" class="mt-2 p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-100 dark:border-amber-800 rounded-xl flex items-center justify-between gap-4 animate-in fade-in slide-in-from-top-2 duration-300">
-          <div class="flex items-center gap-3">
-            <div class="h-8 w-8 rounded-full bg-amber-100 dark:bg-amber-900/40 flex items-center justify-center shrink-0">
-              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-amber-600 dark:text-amber-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M13.8 12H3"/>
-              </svg>
+        <div v-if="state.isBlockedByLogin" class="mt-2 flex flex-col gap-2">
+          <div class="p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-100 dark:border-amber-800 rounded-xl flex items-center justify-between gap-4 animate-in fade-in slide-in-from-top-2 duration-300">
+            <div class="flex items-center gap-3">
+              <div class="h-8 w-8 rounded-full bg-amber-100 dark:bg-amber-900/40 flex items-center justify-center shrink-0">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-amber-600 dark:text-amber-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M13.8 12H3"/>
+                </svg>
+              </div>
+              <div>
+                <p class="text-[11px] text-amber-800 dark:text-amber-300 leading-tight">
+                  Indeed bloqueó el acceso. <span class="font-bold">Iniciá sesión en tu navegador</span> para continuar.
+                </p>
+                <div class="flex gap-2 mt-2">
+                  <button 
+                    @click="state.showCookieInput = !state.showCookieInput"
+                    class="text-[10px] text-amber-600 dark:text-amber-400 underline"
+                  >
+                    {{ state.showCookieInput ? 'Ocultar método avanzado' : 'Usar método avanzado (Cookies)' }}
+                  </button>
+                  <span class="text-[10px] text-amber-400">•</span>
+                  <button 
+                    @click="doNinjaSearch"
+                    class="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold hover:underline flex items-center gap-1"
+                  >
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
+                      <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
+                    </svg>
+                    Usar Búsqueda Ninja (Detección de Bloqueo)
+                  </button>
+                </div>
+              </div>
             </div>
-            <p class="text-[11px] text-amber-800 dark:text-amber-300 leading-tight">
-              Indeed bloqueó el acceso. <span class="font-bold">Iniciá sesión en tu navegador</span> y luego volvé a intentar acá.
-            </p>
+            <button 
+              @click="handleOpenLogin"
+              class="px-4 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-[11px] font-bold rounded-lg transition-colors shadow-sm shrink-0"
+            >
+              Abrir Indeed
+            </button>
           </div>
-          <button 
-            @click="handleOpenLogin"
-            class="px-4 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-[11px] font-bold rounded-lg transition-colors shadow-sm shrink-0"
-          >
-            Abrir Indeed
-          </button>
+
+          <!-- Advanced Cookie Input -->
+          <div v-if="state.showCookieInput" class="p-3 bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-700 rounded-xl animate-in fade-in zoom-in-95 duration-200">
+            <p class="text-[10px] text-slate-500 dark:text-slate-400 mb-2 font-medium">Pegá tu Cookie de sesión aquí:</p>
+            <div class="flex gap-2">
+              <input 
+                v-model="state.manualCookie"
+                type="text" 
+                placeholder="Session Cookie..."
+                class="flex-1 px-3 py-1.5 text-[11px] rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              />
+              <button 
+                @click="handleSaveCookie"
+                class="px-3 py-1.5 bg-indigo-600 text-white text-[11px] font-bold rounded-lg hover:bg-indigo-700"
+              >
+                Guardar
+              </button>
+            </div>
+            <p class="text-[9px] text-slate-400 mt-2 italic">Tip: Usá el siguiente script en la consola de Indeed para obtenerla.</p>
+            <div class="mt-1 p-2 bg-slate-900 rounded font-mono text-[9px] text-indigo-300 overflow-x-auto whitespace-pre select-all">copy(document.cookie); console.log("Cookie copiada al portapapeles!");</div>
+          </div>
         </div>
       </div>
     </section>

@@ -97,6 +97,16 @@ func (a *App) BulkScrape(query string, platform string, start int) (SearchRespon
 	return scraper.ScrapeSearch(a.ctx, query, start)
 }
 
+// SetSessionCookie sets the manual session cookie for a platform.
+func (a *App) SetSessionCookie(platform string, cookie string) error {
+	scraper, err := a.registry.GetScraper(platform)
+	if err != nil {
+		return err
+	}
+	scraper.SetSessionCookie(cookie)
+	return nil
+}
+
 // cleanScrapedText removes CSS blocks {...}, CSS classes, and HTML tags from the text
 func cleanScrapedText(input string, preserveNewlines bool) string {
 	// 1. Remove CSS blocks like {color: red; ...}
@@ -201,7 +211,7 @@ func (a *App) ExportBulkJSON(query string, results []SearchResult) (ExportResult
 	if err != nil {
 		errStr := "Error initializing scraper: " + err.Error()
 		finalRes.Errors = []string{errStr}
-		return finalRes, fmt.Errorf(errStr)
+		return finalRes, fmt.Errorf("%s", errStr)
 	}
 
 	total := len(results)

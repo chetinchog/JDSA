@@ -2,8 +2,8 @@ package backend
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
+	"math/rand"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
@@ -14,15 +14,75 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-// IndeedScraper handles scraping job data from Indeed job pages.
-type IndeedScraper struct {
-	jar http.CookieJar
+// cookieBypassTransport handles the low-level injection of cookies.
+// It merges cookies from the Jar (legal) with the manual session cookie (potentially illegal bits).
+type cookieBypassTransport struct {
+	Base          http.RoundTripper
+	SessionCookie string
 }
 
-// NewIndeedScraper creates a new IndeedScraper with a cookie jar.
+func (t *cookieBypassTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	// If we have manual cookies, we merge them with any cookies colly/jar already set.
+	if t.SessionCookie != "" {
+		existing := req.Header.Get("Cookie")
+		finalCookie := t.SessionCookie
+		if existing != "" {
+			// JAR cookies (existing) must overwrite manual ones because they contain
+			// the latest security rotations from the response of the previous page.
+			finalCookie = mergeCookies(t.SessionCookie, existing)
+		}
+
+		// Force the raw string into the map to bypass net/http's AddCookie sanitization.
+		// Go's Transport will write this string exactly as-is to the wire.
+		req.Header["Cookie"] = []string{finalCookie}
+	}
+
+	return t.Base.RoundTrip(req)
+}
+
+// mergeCookies attempts a naive merge of two cookie strings.
+func mergeCookies(c1, c2 string) string {
+	m := make(map[string]string)
+
+	parse := func(s string) {
+		parts := strings.Split(s, ";")
+		for _, p := range parts {
+			p = strings.TrimSpace(p)
+			if p == "" {
+				continue
+			}
+			kv := strings.SplitN(p, "=", 2)
+			if len(kv) == 2 {
+				m[strings.TrimSpace(kv[0])] = strings.TrimSpace(kv[1])
+			}
+		}
+	}
+
+	parse(c1)
+	parse(c2) // c2 (manual session) wins on conflicts
+
+	var res []string
+	for k, v := range m {
+		res = append(res, fmt.Sprintf("%s=%s", k, v))
+	}
+	return strings.Join(res, "; ")
+}
+
+// IndeedScraper handles scraping job data from Indeed job pages.
+type IndeedScraper struct {
+	jar       http.CookieJar
+	transport *cookieBypassTransport
+}
+
+// NewIndeedScraper creates a new IndeedScraper with a real jar for rotated tokens.
 func NewIndeedScraper() *IndeedScraper {
 	jar, _ := cookiejar.New(nil)
-	return &IndeedScraper{jar: jar}
+	return &IndeedScraper{
+		jar: jar,
+		transport: &cookieBypassTransport{
+			Base: http.DefaultTransport,
+		},
+	}
 }
 
 // CanHandle returns true if the host contains "indeed".
@@ -30,55 +90,38 @@ func (s *IndeedScraper) CanHandle(host string) bool {
 	return strings.Contains(strings.ToLower(host), "indeed")
 }
 
+func getModernUA() string {
+	return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
+}
+
 // Scrape extracts job data from an Indeed URL.
-// Supports both /viewjob?jk=... and /jobs?...&vjk=... URL formats.
 func (s *IndeedScraper) Scrape(targetURL string) (JobData, error) {
 	var job JobData
 	job.ApplyURL = targetURL
 
-	// Parse URL to extract job ID and determine the scrape target
-	u, err := url.Parse(targetURL)
-	if err != nil {
-		return job, fmt.Errorf("error parsing URL: %v", err)
-	}
-
-	// Try jk first, then vjk
-	jobID := u.Query().Get("jk")
-	if jobID == "" {
-		jobID = u.Query().Get("vjk")
-	}
-	job.JobID = jobID
-
-	// If the ID came from vjk (search result page), build the canonical viewjob URL
-	scrapeURL := targetURL
-	if u.Query().Get("jk") == "" && jobID != "" {
-		scrapeURL = fmt.Sprintf("%s://%s/viewjob?jk=%s", u.Scheme, u.Host, jobID)
-	}
-
 	c := colly.NewCollector(
-		colly.UserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"),
-		colly.MaxDepth(1),
+		colly.UserAgent(getModernUA()),
 	)
+
 	c.SetCookieJar(s.jar)
+	c.WithTransport(s.transport)
 	c.SetRequestTimeout(30 * time.Second)
 
-	// Set realistic headers
 	c.OnRequest(func(r *colly.Request) {
-		r.Headers.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7")
+		r.Headers.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8")
 		r.Headers.Set("Accept-Language", "es-AR,es;q=0.9,en;q=0.8")
-		r.Headers.Set("Cache-Control", "max-age=0")
-		r.Headers.Set("Connection", "keep-alive")
 		r.Headers.Set("Sec-Ch-Ua", `"Not A(Bit:Major";v="99", "Google Chrome";v="121", "Chromium";v="121"`)
 		r.Headers.Set("Sec-Ch-Ua-Mobile", "?0")
 		r.Headers.Set("Sec-Ch-Ua-Platform", `"Windows"`)
+		r.Headers.Set("Sec-Ch-Ua-Platform-Version", `"10.0.0"`)
 		r.Headers.Set("Sec-Fetch-Dest", "document")
 		r.Headers.Set("Sec-Fetch-Mode", "navigate")
+		r.Headers.Set("Sec-Fetch-Site", "same-origin")
 		r.Headers.Set("Sec-Fetch-User", "?1")
 		r.Headers.Set("Upgrade-Insecure-Requests", "1")
 		r.Headers.Set("Referer", "https://ar.indeed.com/")
 	})
 
-	// Job Title Selectors
 	c.OnHTML("h1.jobsearch-JobInfoHeader-title", func(e *colly.HTMLElement) {
 		job.JobTitle = strings.TrimSpace(e.Text)
 	})
@@ -87,119 +130,21 @@ func (s *IndeedScraper) Scrape(targetURL string) (JobData, error) {
 			job.JobTitle = strings.TrimSpace(e.Text)
 		}
 	})
-
-	// Company Name Selectors (Prioritize UI)
 	c.OnHTML("[data-testid='inlineHeader-companyName']", func(e *colly.HTMLElement) {
 		job.CompanyName = strings.TrimSpace(e.Text)
 	})
-	c.OnHTML("[data-testid='inline-companyname-link']", func(e *colly.HTMLElement) {
-		if job.CompanyName == "" {
-			job.CompanyName = strings.TrimSpace(e.Text)
-		}
-	})
-	c.OnHTML("[data-testid='inline-companyname']", func(e *colly.HTMLElement) {
-		if job.CompanyName == "" {
-			job.CompanyName = strings.TrimSpace(e.Text)
-		}
-	})
-
-	// Location Selectors
-	c.OnHTML("[data-testid='jobsearch-JobInfoHeader-companyLocation']", func(e *colly.HTMLElement) {
-		job.Location = strings.TrimSpace(e.Text)
-	})
-	c.OnHTML("[data-testid='job-location']", func(e *colly.HTMLElement) {
-		if job.Location == "" {
-			job.Location = strings.TrimSpace(e.Text)
-		}
-	})
-	c.OnHTML("[data-testid='text-location']", func(e *colly.HTMLElement) {
-		if job.Location == "" {
-			job.Location = strings.TrimSpace(e.Text)
-		}
-	})
-
-	// Expired job detection — Indeed shows specific elements for expired posts
-	c.OnHTML("[data-testid='expired-job']", func(e *colly.HTMLElement) {
-		job.IsExpired = true
-	})
-	c.OnHTML(".jobsearch-JobInfoHeader-expiredHeader", func(e *colly.HTMLElement) {
-		job.IsExpired = true
-	})
-	// Indeed AR specific selectors or general alert boxes
-	c.OnHTML(".ekqvxqv5", func(e *colly.HTMLElement) {
-		if strings.Contains(e.Text, "caducó") || strings.Contains(e.Text, "expired") {
-			job.IsExpired = true
-		}
-	})
-	c.OnHTML(".icl-Callout--critical", func(e *colly.HTMLElement) {
-		job.IsExpired = true
-	})
-
-	// Meta robots noindex is a strong signal for expired/inactive jobs on Indeed
-	c.OnHTML("meta", func(e *colly.HTMLElement) {
-		content := e.Attr("content")
-		if strings.Contains(strings.ToLower(content), "noindex") {
-			job.IsExpired = true
-		}
-	})
-
-	// JSON-LD Fallback
-	c.OnHTML("script[type='application/ld+json']", func(e *colly.HTMLElement) {
-		var data map[string]interface{}
-		if err := json.Unmarshal([]byte(e.Text), &data); err == nil {
-			if title, ok := data["title"].(string); ok && job.JobTitle == "" {
-				job.JobTitle = title
-			}
-			if org, ok := data["hiringOrganization"].(map[string]interface{}); ok {
-				if name, ok := org["name"].(string); ok && job.CompanyName == "" {
-					job.CompanyName = name
-				}
-			}
-			if loc, ok := data["jobLocation"].(map[string]interface{}); ok {
-				if addr, ok := loc["address"].(map[string]interface{}); ok {
-					locality, _ := addr["addressLocality"].(string)
-					region, _ := addr["addressRegion"].(string)
-
-					if locality != "" && region != "" {
-						if job.Location == "" {
-							job.Location = fmt.Sprintf("%s, %s", locality, region)
-						}
-					} else if locality != "" {
-						if job.Location == "" {
-							job.Location = locality
-						}
-					}
-				}
-			}
-			if desc, ok := data["description"].(string); ok && job.JobDescription == "" {
-				job.JobDescription = desc
-			}
-			if jobStatus, ok := data["jobStatus"].(string); ok {
-				jsLower := strings.ToLower(jobStatus)
-				if strings.Contains(jsLower, "closed") || strings.Contains(jsLower, "expired") {
-					job.IsExpired = true
-				}
-			}
-		}
-	})
-
-	// Job Description
 	c.OnHTML("#jobDescriptionText", func(e *colly.HTMLElement) {
-		if job.JobDescription == "" {
-			job.JobDescription = strings.TrimSpace(e.Text)
-		}
+		job.JobDescription = strings.TrimSpace(e.Text)
 	})
 
-	err = c.Visit(scrapeURL)
+	err := c.Visit(targetURL)
 	if err != nil {
 		return job, fmt.Errorf("error visiting URL: %v", err)
 	}
 
-	// Post-processing cleanup
 	job.CompanyName = cleanScrapedText(job.CompanyName, false)
 	job.JobDescription = cleanScrapedText(job.JobDescription, true)
 
-	// If no title and no description were found, likely expired
 	if job.JobTitle == "" && job.JobDescription == "" {
 		job.IsExpired = true
 	}
@@ -207,102 +152,85 @@ func (s *IndeedScraper) Scrape(targetURL string) (JobData, error) {
 	return job, nil
 }
 
-// ScrapeSearch extracts a list of jobs from a search query on Indeed, navigating a batch of pages.
+// ScrapeSearch extracts a list of jobs from a search query on Indeed.
 func (s *IndeedScraper) ScrapeSearch(ctx context.Context, query string, startOffset int) (SearchResponse, error) {
 	var results []SearchResult
 	seenIDs := make(map[string]bool)
-	pagesPerBatch := 10 // Scrape 10 pages per batch
-	limit := 10         // Indeed usually shows 10-15 results per page
+	pagesPerBatch := 10
+	limit := 10
 
 	c := colly.NewCollector(
-		colly.UserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"),
+		colly.UserAgent(getModernUA()),
 	)
+
 	c.SetCookieJar(s.jar)
+	c.WithTransport(s.transport)
 	c.SetRequestTimeout(30 * time.Second)
 
+	isBlocked := false
+	currentReferer := "https://ar.indeed.com/"
+
 	c.OnRequest(func(r *colly.Request) {
-		r.Headers.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7")
+		r.Headers.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8")
 		r.Headers.Set("Accept-Language", "es-AR,es;q=0.9,en;q=0.8")
-		r.Headers.Set("Cache-Control", "max-age=0")
-		r.Headers.Set("Connection", "keep-alive")
 		r.Headers.Set("Sec-Ch-Ua", `"Not A(Bit:Major";v="99", "Google Chrome";v="121", "Chromium";v="121"`)
 		r.Headers.Set("Sec-Ch-Ua-Mobile", "?0")
 		r.Headers.Set("Sec-Ch-Ua-Platform", `"Windows"`)
+		r.Headers.Set("Sec-Ch-Ua-Platform-Version", `"10.0.0"`)
 		r.Headers.Set("Sec-Fetch-Dest", "document")
 		r.Headers.Set("Sec-Fetch-Mode", "navigate")
+		r.Headers.Set("Sec-Fetch-Site", "same-origin")
 		r.Headers.Set("Sec-Fetch-User", "?1")
 		r.Headers.Set("Upgrade-Insecure-Requests", "1")
-		r.Headers.Set("Referer", "https://ar.indeed.com/")
+		r.Headers.Set("Referer", currentReferer)
 	})
-
-	c.OnHTML("div.job_seen_beacon", func(e *colly.HTMLElement) {
-		var res SearchResult
-
-		// Find Job ID from the link
-		link := e.DOM.Find("a.jcs-JobTitle")
-
-		jk, hasJk := link.Attr("data-jk")
-		if hasJk && jk != "" {
-			res.JobID = jk
-		} else {
-			href, hasHref := link.Attr("href")
-			if hasHref {
-				u, _ := url.Parse(href)
-				res.JobID = u.Query().Get("jk")
-			}
-		}
-
-		res.Title = strings.TrimSpace(link.Text())
-		res.Company = strings.TrimSpace(e.DOM.Find("[data-testid='company-name']").Text())
-		res.Location = strings.TrimSpace(e.DOM.Find("[data-testid='text-location']").Text())
-
-		// Create a composite key to detect sponsored vs organic duplicates which often have distinct IDs
-		dupeKey := fmt.Sprintf("%s|%s", strings.ToLower(res.Title), strings.ToLower(res.Company))
-
-		// Skip if we couldn't find an ID or if we have already seen this job ID or title+company combo
-		if res.JobID == "" || seenIDs[res.JobID] || seenIDs[dupeKey] {
-			return
-		}
-
-		if res.Title != "" {
-			seenIDs[res.JobID] = true
-			seenIDs[dupeKey] = true
-			results = append(results, res)
-		}
-	})
-
-	lastPageFoundResults := false
-	isBlocked := false
 
 	c.OnHTML("title", func(e *colly.HTMLElement) {
 		title := strings.ToLower(e.Text)
-		// More robust title detection
-		if strings.Contains(title, "inicias") ||
-			strings.Contains(title, "iniciar") ||
-			strings.Contains(title, "login") ||
-			strings.Contains(title, "cuentas indeed") ||
-			strings.Contains(title, "crea una cuenta") ||
-			strings.Contains(title, "captcha") ||
-			strings.Contains(title, "challenge") {
+		if (strings.Contains(title, "iniciar sesión") && strings.Contains(title, "cuentas")) ||
+			strings.Contains(title, "captcha") || strings.Contains(title, "challenge") {
 			isBlocked = true
 		}
 	})
 
 	c.OnResponse(func(r *colly.Response) {
-		// If indeed redirects to secure.indeed.com/auth...
 		urlStr := r.Request.URL.String()
 		if strings.Contains(urlStr, "/auth") || strings.Contains(urlStr, "captcha") {
 			isBlocked = true
 		}
 	})
 
+	c.OnHTML("div.job_seen_beacon", func(e *colly.HTMLElement) {
+		var res SearchResult
+		link := e.DOM.Find("a.jcs-JobTitle")
+		jk, _ := link.Attr("data-jk")
+		if jk == "" {
+			href, _ := link.Attr("href")
+			u, _ := url.Parse(href)
+			jk = u.Query().Get("jk")
+		}
+
+		if jk != "" {
+			res.JobID = jk
+			res.Title = strings.TrimSpace(link.Text())
+			res.Company = strings.TrimSpace(e.DOM.Find("[data-testid='company-name']").Text())
+			res.Location = strings.TrimSpace(e.DOM.Find("[data-testid='text-location']").Text())
+
+			dupeKey := fmt.Sprintf("%s|%s", strings.ToLower(res.Title), strings.ToLower(res.Company))
+			if !seenIDs[jk] && !seenIDs[dupeKey] {
+				seenIDs[jk] = true
+				seenIDs[dupeKey] = true
+				results = append(results, res)
+			}
+		}
+	})
+
+	lastPageFoundResults := false
 	for page := 0; page < pagesPerBatch; page++ {
-		// If we already detected a block, stop
 		if isBlocked {
 			break
 		}
 
-		// Emit progress to the frontend
 		runtime.EventsEmit(ctx, "scraping-progress", map[string]interface{}{
 			"current": page + 1,
 			"total":   pagesPerBatch,
@@ -319,7 +247,6 @@ func (s *IndeedScraper) ScrapeSearch(ctx context.Context, query string, startOff
 		}
 
 		if isBlocked {
-			// Redirected to login page
 			lastPageFoundResults = false
 			break
 		}
@@ -328,14 +255,13 @@ func (s *IndeedScraper) ScrapeSearch(ctx context.Context, query string, startOff
 			lastPageFoundResults = true
 		} else {
 			lastPageFoundResults = false
-			// If we didn't find any new results on this page, it's likely the end of results
-			if page > 0 { // Allow the first page of the batch to be empty just in case
+			if page > 0 {
 				break
 			}
 		}
 
-		// Small delay to be respectful and avoid blocks
-		time.Sleep(600 * time.Millisecond)
+		currentReferer = searchURL
+		time.Sleep(time.Duration(1500+rand.Intn(1500)) * time.Millisecond)
 	}
 
 	return SearchResponse{
@@ -344,4 +270,9 @@ func (s *IndeedScraper) ScrapeSearch(ctx context.Context, query string, startOff
 		NextOffset:       startOffset + (pagesPerBatch * limit),
 		IsBlockedByLogin: isBlocked,
 	}, nil
+}
+
+// SetSessionCookie sets the manual session cookie to bypass login walls.
+func (s *IndeedScraper) SetSessionCookie(cookie string) {
+	s.transport.SessionCookie = strings.TrimSpace(cookie)
 }
