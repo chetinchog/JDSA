@@ -110,6 +110,7 @@ const doBulkScrap = async (isNew = true) => {
   
   state.loading = true
   state.isSearching = true
+  state.isBlockedByLogin = false
   state.error = ''
   
   if (isNew) {

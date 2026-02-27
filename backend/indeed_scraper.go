@@ -276,7 +276,22 @@ func (s *IndeedScraper) ScrapeSearch(ctx context.Context, query string, startOff
 
 	c.OnHTML("title", func(e *colly.HTMLElement) {
 		title := strings.ToLower(e.Text)
-		if strings.Contains(title, "inicia sesión") || strings.Contains(title, "login") || strings.Contains(title, "crea una cuenta") {
+		// More robust title detection
+		if strings.Contains(title, "inicias") ||
+			strings.Contains(title, "iniciar") ||
+			strings.Contains(title, "login") ||
+			strings.Contains(title, "cuentas indeed") ||
+			strings.Contains(title, "crea una cuenta") ||
+			strings.Contains(title, "captcha") ||
+			strings.Contains(title, "challenge") {
+			isBlocked = true
+		}
+	})
+
+	c.OnResponse(func(r *colly.Response) {
+		// If indeed redirects to secure.indeed.com/auth...
+		urlStr := r.Request.URL.String()
+		if strings.Contains(urlStr, "/auth") || strings.Contains(urlStr, "captcha") {
 			isBlocked = true
 		}
 	})
