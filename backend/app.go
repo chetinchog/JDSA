@@ -162,6 +162,11 @@ func (a *App) ExportJSON(job JobData) error {
 	return os.WriteFile(path, data, 0644)
 }
 
+// OpenURL opens the given URL in the default system browser
+func (a *App) OpenURL(targetURL string) {
+	runtime.BrowserOpenURL(a.ctx, targetURL)
+}
+
 // ExportBulkJSON saves the list of jobs found in search as a JSON file, fetching full details for each
 func (a *App) ExportBulkJSON(query string, results []SearchResult) (ExportResult, error) {
 	var finalRes ExportResult

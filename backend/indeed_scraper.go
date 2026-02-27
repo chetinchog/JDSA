@@ -272,7 +272,21 @@ func (s *IndeedScraper) ScrapeSearch(ctx context.Context, query string, startOff
 	})
 
 	lastPageFoundResults := false
+	isBlocked := false
+
+	c.OnHTML("title", func(e *colly.HTMLElement) {
+		title := strings.ToLower(e.Text)
+		if strings.Contains(title, "inicia sesión") || strings.Contains(title, "login") || strings.Contains(title, "crea una cuenta") {
+			isBlocked = true
+		}
+	})
+
 	for page := 0; page < pagesPerBatch; page++ {
+		// If we already detected a block, stop
+		if isBlocked {
+			break
+		}
+
 		// Emit progress to the frontend
 		runtime.EventsEmit(ctx, "scraping-progress", map[string]interface{}{
 			"current": page + 1,
@@ -286,6 +300,12 @@ func (s *IndeedScraper) ScrapeSearch(ctx context.Context, query string, startOff
 		countBefore := len(results)
 		err := c.Visit(searchURL)
 		if err != nil {
+			break
+		}
+
+		if isBlocked {
+			// Redirected to login page
+			lastPageFoundResults = false
 			break
 		}
 
@@ -304,8 +324,9 @@ func (s *IndeedScraper) ScrapeSearch(ctx context.Context, query string, startOff
 	}
 
 	return SearchResponse{
-		Results:    results,
-		HasMore:    lastPageFoundResults,
-		NextOffset: startOffset + (pagesPerBatch * limit),
+		Results:          results,
+		HasMore:          lastPageFoundResults && !isBlocked,
+		NextOffset:       startOffset + (pagesPerBatch * limit),
+		IsBlockedByLogin: isBlocked,
 	}, nil
 }

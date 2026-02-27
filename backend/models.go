@@ -26,7 +26,8 @@ type ExportResult struct {
 }
 
 type SearchResponse struct {
-	Results    []SearchResult `json:"results"`
-	HasMore    bool           `json:"hasMore"`
-	NextOffset int            `json:"nextOffset"`
+	Results          []SearchResult `json:"results"`
+	HasMore          bool           `json:"hasMore"`
+	NextOffset       int            `json:"nextOffset"`
+	IsBlockedByLogin bool           `json:"isBlockedByLogin"`
 }

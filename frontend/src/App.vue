@@ -1,6 +1,6 @@
 <script setup>
 import { reactive, ref, onMounted } from 'vue'
-import { ScrapeJob, ExportJSON, BulkScrape, ExportBulkJSON } from '../wailsjs/go/backend/App'
+import { ScrapeJob, ExportJSON, BulkScrape, ExportBulkJSON, OpenURL } from '../wailsjs/go/backend/App'
 import { EventsOn } from '../wailsjs/runtime/runtime'
 import SplashScreen from './components/SplashScreen.vue'
 import ScrapingLoader from './components/ScrapingLoader.vue'
@@ -91,7 +91,8 @@ const state = reactive({
   // Pagination
   nextOffset: 0,
   hasMore: false,
-  isSearching: false
+  isSearching: false,
+  isBlockedByLogin: false
 })
 
 const setMode = (mode) => {
@@ -128,9 +129,14 @@ const doBulkScrap = async (isNew = true) => {
     }
     state.hasMore = res.hasMore
     state.nextOffset = res.nextOffset
+    state.isBlockedByLogin = res.isBlockedByLogin
     
     if (state.bulkResults.length === 0) {
-        state.error = 'No se encontraron empleos para esa búsqueda.'
+        if (state.isBlockedByLogin) {
+            state.error = 'La búsqueda fue bloqueada por Indeed (requiere iniciar sesión).'
+        } else {
+            state.error = 'No se encontraron empleos para esa búsqueda.'
+        }
     }
   } catch (err) {
     state.error = 'Error al buscar: ' + err
@@ -138,6 +144,12 @@ const doBulkScrap = async (isNew = true) => {
     state.loading = false
     state.isSearching = false
   }
+}
+
+const handleOpenLogin = () => {
+    // Open Indeed in results page
+    const url = `https://ar.indeed.com/jobs?q=${encodeURIComponent(state.bulkQuery)}`
+    OpenURL(url)
 }
 
 const selectJob = async (jobId) => {
@@ -362,6 +374,26 @@ const doExport = async () => {
           </button>
         </div>
         <p v-if="state.error" class="text-xs text-red-500 dark:text-red-400 mt-1">{{ state.error }}</p>
+
+        <!-- Login Alert -->
+        <div v-if="state.isBlockedByLogin" class="mt-2 p-3 bg-amber-50 dark:bg-amber-900/20 border border-amber-100 dark:border-amber-800 rounded-xl flex items-center justify-between gap-4 animate-in fade-in slide-in-from-top-2 duration-300">
+          <div class="flex items-center gap-3">
+            <div class="h-8 w-8 rounded-full bg-amber-100 dark:bg-amber-900/40 flex items-center justify-center shrink-0">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-amber-600 dark:text-amber-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4M10 17l5-5-5-5M13.8 12H3"/>
+              </svg>
+            </div>
+            <p class="text-[11px] text-amber-800 dark:text-amber-300 leading-tight">
+              Indeed bloqueó el acceso. <span class="font-bold">Iniciá sesión en tu navegador</span> y luego volvé a intentar acá.
+            </p>
+          </div>
+          <button 
+            @click="handleOpenLogin"
+            class="px-4 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-[11px] font-bold rounded-lg transition-colors shadow-sm shrink-0"
+          >
+            Abrir Indeed
+          </button>
+        </div>
       </div>
     </section>
 
