@@ -139,6 +139,11 @@ func (s *IndeedScraper) Scrape(targetURL string) (JobData, error) {
 	var job JobData
 	job.ApplyURL = targetURL
 
+	// Attempt to parse JobID from the URL query params
+	if u, err := url.Parse(targetURL); err == nil {
+		job.JobID = u.Query().Get("jk")
+	}
+
 	c := s.newCollector()
 
 	c.OnHTML("h1.jobsearch-JobInfoHeader-title", func(e *colly.HTMLElement) {
@@ -151,6 +156,19 @@ func (s *IndeedScraper) Scrape(targetURL string) (JobData, error) {
 	})
 	c.OnHTML("[data-testid='inlineHeader-companyName']", func(e *colly.HTMLElement) {
 		job.CompanyName = strings.TrimSpace(e.Text)
+	})
+	c.OnHTML("[data-testid='inlineHeader-companyLocation']", func(e *colly.HTMLElement) {
+		job.Location = strings.TrimSpace(e.Text)
+	})
+	c.OnHTML("[data-testid='job-location']", func(e *colly.HTMLElement) {
+		if job.Location == "" {
+			job.Location = strings.TrimSpace(e.Text)
+		}
+	})
+	c.OnHTML("div#jobLocationText", func(e *colly.HTMLElement) {
+		if job.Location == "" {
+			job.Location = strings.TrimSpace(e.Text)
+		}
 	})
 	c.OnHTML("#jobDescriptionText", func(e *colly.HTMLElement) {
 		job.JobDescription = strings.TrimSpace(e.Text)
