@@ -11,6 +11,7 @@ type JobData struct {
 	LinkedinCompanyID string `json:"linkedin_company_id,omitempty"`
 	JobPosterEmail    string `json:"job_poster_email,omitempty"`
 }
+
 type SearchResult struct {
 	JobID    string `json:"job_id"`
 	Title    string `json:"title"`
@@ -22,4 +23,10 @@ type ExportResult struct {
 	SuccessCount int      `json:"successCount"`
 	ErrorCount   int      `json:"errorCount"`
 	Errors       []string `json:"errors"`
+}
+
+type SearchResponse struct {
+	Results    []SearchResult `json:"results"`
+	HasMore    bool           `json:"hasMore"`
+	NextOffset int            `json:"nextOffset"`
 }

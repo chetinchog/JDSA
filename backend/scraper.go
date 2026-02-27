@@ -1,6 +1,7 @@
 package backend
 
 import (
+	"context"
 	"fmt"
 	"strings"
 )
@@ -12,7 +13,7 @@ type Scraper interface {
 	// Scrape extracts job data from the given URL.
 	Scrape(targetURL string) (JobData, error)
 	// ScrapeSearch extracts a list of jobs from a search query.
-	ScrapeSearch(query string) ([]SearchResult, error)
+	ScrapeSearch(ctx context.Context, query string, start int) (SearchResponse, error)
 }
 
 // ScraperRegistry holds all registered scrapers and selects the right one.

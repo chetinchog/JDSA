@@ -52,7 +52,7 @@ type App struct {
 func NewApp() *App {
 	return &App{
 		registry: NewScraperRegistry(
-			&IndeedScraper{},
+			NewIndeedScraper(),
 		),
 	}
 }
@@ -87,14 +87,14 @@ func (a *App) ScrapeJob(targetURL string) (JobData, error) {
 }
 
 // BulkScrape searches for jobs on a specific platform.
-func (a *App) BulkScrape(query string, platform string) ([]SearchResult, error) {
+func (a *App) BulkScrape(query string, platform string, start int) (SearchResponse, error) {
 	// For now, we only support Indeed
 	scraper, err := a.registry.GetScraper(platform)
 	if err != nil {
-		return nil, err
+		return SearchResponse{}, err
 	}
 
-	return scraper.ScrapeSearch(query)
+	return scraper.ScrapeSearch(a.ctx, query, start)
 }
 
 // cleanScrapedText removes CSS blocks {...}, CSS classes, and HTML tags from the text

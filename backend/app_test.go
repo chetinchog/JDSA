@@ -127,7 +127,7 @@ func TestCleanScrapedText(t *testing.T) {
 // --- Strategy Pattern Tests ---
 
 func TestScraperRegistry_GetScraper(t *testing.T) {
-	registry := NewScraperRegistry(&IndeedScraper{})
+	registry := NewScraperRegistry(NewIndeedScraper())
 
 	tests := []struct {
 		name    string
@@ -156,7 +156,7 @@ func TestScraperRegistry_GetScraper(t *testing.T) {
 }
 
 func TestIndeedScraper_CanHandle(t *testing.T) {
-	s := &IndeedScraper{}
+	s := NewIndeedScraper()
 
 	tests := []struct {
 		host string

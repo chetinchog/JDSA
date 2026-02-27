@@ -1,17 +1,29 @@
 package backend
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"net/http/cookiejar"
 	"net/url"
 	"strings"
 	"time"
 
 	"github.com/gocolly/colly/v2"
+	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // IndeedScraper handles scraping job data from Indeed job pages.
-type IndeedScraper struct{}
+type IndeedScraper struct {
+	jar http.CookieJar
+}
+
+// NewIndeedScraper creates a new IndeedScraper with a cookie jar.
+func NewIndeedScraper() *IndeedScraper {
+	jar, _ := cookiejar.New(nil)
+	return &IndeedScraper{jar: jar}
+}
 
 // CanHandle returns true if the host contains "indeed".
 func (s *IndeedScraper) CanHandle(host string) bool {
@@ -47,6 +59,7 @@ func (s *IndeedScraper) Scrape(targetURL string) (JobData, error) {
 		colly.UserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"),
 		colly.MaxDepth(1),
 	)
+	c.SetCookieJar(s.jar)
 	c.SetRequestTimeout(30 * time.Second)
 
 	// Set realistic headers
@@ -194,14 +207,17 @@ func (s *IndeedScraper) Scrape(targetURL string) (JobData, error) {
 	return job, nil
 }
 
-// ScrapeSearch extracts a list of jobs from a search query on Indeed.
-func (s *IndeedScraper) ScrapeSearch(query string) ([]SearchResult, error) {
+// ScrapeSearch extracts a list of jobs from a search query on Indeed, navigating a batch of pages.
+func (s *IndeedScraper) ScrapeSearch(ctx context.Context, query string, startOffset int) (SearchResponse, error) {
 	var results []SearchResult
-	searchURL := fmt.Sprintf("https://ar.indeed.com/jobs?q=%s", url.QueryEscape(query))
+	seenIDs := make(map[string]bool)
+	pagesPerBatch := 10 // Scrape 10 pages per batch
+	limit := 10         // Indeed usually shows 10-15 results per page
 
 	c := colly.NewCollector(
 		colly.UserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"),
 	)
+	c.SetCookieJar(s.jar)
 	c.SetRequestTimeout(30 * time.Second)
 
 	c.OnRequest(func(r *colly.Request) {
@@ -218,8 +234,6 @@ func (s *IndeedScraper) ScrapeSearch(query string) ([]SearchResult, error) {
 		r.Headers.Set("Upgrade-Insecure-Requests", "1")
 		r.Headers.Set("Referer", "https://ar.indeed.com/")
 	})
-
-	seenIDs := make(map[string]bool)
 
 	c.OnHTML("div.job_seen_beacon", func(e *colly.HTMLElement) {
 		var res SearchResult
@@ -257,10 +271,41 @@ func (s *IndeedScraper) ScrapeSearch(query string) ([]SearchResult, error) {
 		}
 	})
 
-	err := c.Visit(searchURL)
-	if err != nil {
-		return nil, fmt.Errorf("error visiting search URL: %v", err)
+	lastPageFoundResults := false
+	for page := 0; page < pagesPerBatch; page++ {
+		// Emit progress to the frontend
+		runtime.EventsEmit(ctx, "scraping-progress", map[string]interface{}{
+			"current": page + 1,
+			"total":   pagesPerBatch,
+			"found":   len(results),
+		})
+
+		currentStart := startOffset + (page * limit)
+		searchURL := fmt.Sprintf("https://ar.indeed.com/jobs?q=%s&start=%d", url.QueryEscape(query), currentStart)
+
+		countBefore := len(results)
+		err := c.Visit(searchURL)
+		if err != nil {
+			break
+		}
+
+		if len(results) > countBefore {
+			lastPageFoundResults = true
+		} else {
+			lastPageFoundResults = false
+			// If we didn't find any new results on this page, it's likely the end of results
+			if page > 0 { // Allow the first page of the batch to be empty just in case
+				break
+			}
+		}
+
+		// Small delay to be respectful and avoid blocks
+		time.Sleep(600 * time.Millisecond)
 	}
 
-	return results, nil
+	return SearchResponse{
+		Results:    results,
+		HasMore:    lastPageFoundResults,
+		NextOffset: startOffset + (pagesPerBatch * limit),
+	}, nil
 }

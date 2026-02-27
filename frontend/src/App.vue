@@ -3,6 +3,7 @@ import { reactive, ref, onMounted } from 'vue'
 import { ScrapeJob, ExportJSON, BulkScrape, ExportBulkJSON } from '../wailsjs/go/backend/App'
 import { EventsOn } from '../wailsjs/runtime/runtime'
 import SplashScreen from './components/SplashScreen.vue'
+import ScrapingLoader from './components/ScrapingLoader.vue'
 
 const isDark = ref(false)
 const showSplash = ref(true)
@@ -27,6 +28,13 @@ onMounted(() => {
     state.exportCurrent = data.current
     state.exportTotal = data.total
     state.exportProgress = data.total > 0 ? (data.current / data.total) * 100 : 0
+  })
+
+  // Listen for search/scraping progress
+  EventsOn('scraping-progress', (data) => {
+    state.scrapingCurrent = data.current
+    state.scrapingTotal = data.total
+    state.scrapingFound = data.found
   })
 
   // Listen for export finished (as a backup to the promise)
@@ -75,7 +83,15 @@ const state = reactive({
   },
   exportProgress: 0,
   exportCurrent: 0,
-  exportTotal: 0
+  exportTotal: 0,
+  // Scraping progress
+  scrapingCurrent: 0,
+  scrapingTotal: 0,
+  scrapingFound: 0,
+  // Pagination
+  nextOffset: 0,
+  hasMore: false,
+  isSearching: false
 })
 
 const setMode = (mode) => {
@@ -85,19 +101,34 @@ const setMode = (mode) => {
   // Let's keep them for now, but clear error.
 }
 
-const doBulkScrap = async () => {
+const doBulkScrap = async (isNew = true) => {
   if (!state.bulkQuery) {
     state.error = 'Por favor, ingresá una búsqueda.'
     return
   }
   
   state.loading = true
+  state.isSearching = true
   state.error = ''
-  state.bulkResults = []
+  
+  if (isNew) {
+    state.bulkResults = []
+    state.result = null
+    state.nextOffset = 0
+    state.hasMore = false
+  }
+  
+  state.scrapingCurrent = 0
+  state.scrapingFound = 0
 
   try {
-    const res = await BulkScrape(state.bulkQuery, state.bulkPlatform)
-    state.bulkResults = res || []
+    const res = await BulkScrape(state.bulkQuery, state.bulkPlatform, state.nextOffset)
+    if (res.results && res.results.length > 0) {
+        state.bulkResults = [...state.bulkResults, ...res.results]
+    }
+    state.hasMore = res.hasMore
+    state.nextOffset = res.nextOffset
+    
     if (state.bulkResults.length === 0) {
         state.error = 'No se encontraron empleos para esa búsqueda.'
     }
@@ -105,6 +136,7 @@ const doBulkScrap = async () => {
     state.error = 'Error al buscar: ' + err
   } finally {
     state.loading = false
+    state.isSearching = false
   }
 }
 
@@ -192,6 +224,13 @@ const doExport = async () => {
 
 <template>
   <SplashScreen v-if="showSplash" @finish="onSplashFinish" />
+  
+  <ScrapingLoader 
+    v-if="state.isSearching" 
+    :current="state.scrapingCurrent" 
+    :total="state.scrapingTotal"
+    :found="state.scrapingFound"
+  />
   
   <main v-else class="h-screen w-full p-6 pb-10 flex flex-col gap-6 overflow-hidden bg-slate-50/30 dark:bg-slate-900 transition-colors duration-300">
     <!-- Header -->
@@ -314,7 +353,7 @@ const doExport = async () => {
             @keyup.enter="doBulkScrap"
           />
           <button 
-            @click="doBulkScrap"
+            @click="doBulkScrap(true)"
             :disabled="state.loading"
             class="px-6 py-2.5 bg-indigo-600 text-white font-semibold rounded-xl hover:bg-indigo-700 active:scale-95 disabled:opacity-50 disabled:active:scale-100 transition-all shadow-md shadow-indigo-100 dark:shadow-indigo-900/30 flex items-center gap-2 text-sm"
           >
@@ -371,6 +410,24 @@ const doExport = async () => {
                 </tr>
               </tbody>
             </table>
+            
+            <!-- Load More button at the end of the table -->
+            <div v-if="state.hasMore" class="p-6 flex justify-center border-t border-slate-50 dark:border-slate-800">
+              <button 
+                @click="doBulkScrap(false)"
+                :disabled="state.loading"
+                class="group relative flex items-center gap-3 px-8 py-3 bg-white dark:bg-slate-700 text-indigo-600 dark:text-indigo-400 font-bold rounded-2xl border-2 border-indigo-100 dark:border-indigo-900/30 hover:border-indigo-500 dark:hover:border-indigo-500 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 active:scale-95 transition-all shadow-sm"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 transition-transform group-hover:rotate-180 duration-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                </svg>
+                <span>Cargar más empleos</span>
+                <span class="absolute -top-2 -right-2 flex h-5 w-5">
+                  <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75"></span>
+                  <span class="relative inline-flex rounded-full h-5 w-5 bg-indigo-500 border-2 border-white dark:border-slate-800 text-[10px] items-center justify-center text-white">+</span>
+                </span>
+              </button>
+            </div>
           </div>
         </section>
 
