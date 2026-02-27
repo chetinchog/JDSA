@@ -10,6 +10,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -45,9 +46,11 @@ func isValidJobURL(rawURL string) error {
 
 // App struct
 type App struct {
-	ctx      context.Context
-	registry *ScraperRegistry
-	db       *Database
+	ctx          context.Context
+	registry     *ScraperRegistry
+	db           *Database
+	cancelSearch context.CancelFunc
+	cancelMu     sync.Mutex
 }
 
 // NewApp creates a new App application struct
@@ -116,13 +119,33 @@ func (a *App) ScrapeJob(targetURL string) (JobData, error) {
 
 // BulkScrape searches for jobs on a specific platform.
 func (a *App) BulkScrape(query string, platform string, start int) (SearchResponse, error) {
-	// For now, we only support Indeed
 	scraper, err := a.registry.GetScraper(platform)
 	if err != nil {
 		return SearchResponse{}, err
 	}
 
-	return scraper.ScrapeSearch(a.ctx, query, start)
+	// Create a cancellable context so the user can stop the search
+	searchCtx, cancel := context.WithCancel(a.ctx)
+	a.cancelMu.Lock()
+	a.cancelSearch = cancel
+	a.cancelMu.Unlock()
+
+	result, err := scraper.ScrapeSearch(searchCtx, query, start)
+
+	a.cancelMu.Lock()
+	a.cancelSearch = nil
+	a.cancelMu.Unlock()
+
+	return result, err
+}
+
+// CancelSearch cancels the currently running search.
+func (a *App) CancelSearch() {
+	a.cancelMu.Lock()
+	defer a.cancelMu.Unlock()
+	if a.cancelSearch != nil {
+		a.cancelSearch()
+	}
 }
 
 // SetSessionCookie sets the manual session cookie for a platform.
@@ -221,9 +244,17 @@ func (a *App) OpenURL(targetURL string) {
 }
 
 // ExportBulkJSON saves the list of jobs found in search as a JSON file, fetching full details for each
-func (a *App) ExportBulkJSON(query string, results []SearchResult) (ExportResult, error) {
+// If existingFilePath is provided, it skips the file dialog and appends to this existing file instead.
+func (a *App) ExportBulkJSON(query string, platform string, results []SearchResult, existingFilePath string) (ExportResult, error) {
 	var finalRes ExportResult
 	now := time.Now().Format("200601021504")
+
+	// Format strategy name
+	strategy := strings.ToUpper(platform)
+	if strategy == "" {
+		strategy = "UNKNOWN"
+	}
+
 	strQuery := strings.ToUpper(query)
 	re := regexp.MustCompile(`[^A-Z0-9]+`)
 	strQuery = re.ReplaceAllString(strQuery, "_")
@@ -231,26 +262,42 @@ func (a *App) ExportBulkJSON(query string, results []SearchResult) (ExportResult
 	if strQuery == "" {
 		strQuery = "EMPLEOS"
 	}
-	defaultName := fmt.Sprintf("BULK_%s_%s.json", now, strQuery)
+	defaultName := fmt.Sprintf("BULK_%s_%s_%s.json", now, strategy, strQuery)
 
-	path, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
-		DefaultFilename: defaultName,
-		Title:           "Exportar Lista Completa de Empleos",
-		Filters: []runtime.FileFilter{
-			{DisplayName: "JSON Files (*.json)", Pattern: "*.json"},
-		},
-	})
-	if err != nil {
-		finalRes.Errors = []string{err.Error()}
-		return finalRes, err
-	}
+	path := existingFilePath
+
 	if path == "" {
-		return finalRes, nil
+		var err error
+		path, err = runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
+			DefaultFilename: defaultName,
+			Title:           "Exportar Lista Completa de Empleos",
+			Filters: []runtime.FileFilter{
+				{DisplayName: "JSON Files (*.json)", Pattern: "*.json"},
+			},
+		})
+		if err != nil {
+			finalRes.Errors = []string{err.Error()}
+			return finalRes, err
+		}
+		if path == "" {
+			return finalRes, nil
+		}
 	}
+
+	finalRes.FilePath = path
 
 	// Fetch full details for each job
 	var fullJobs []JobData
-	scraper, err := a.registry.GetScraper("indeed.com") // Assume Indeed for now as it's the only bulk source
+
+	// If appending to an existing file, read the existing data first
+	if existingFilePath != "" {
+		existingData, loadErr := os.ReadFile(existingFilePath)
+		if loadErr == nil {
+			// Ignore error on unmarshal - if it fails to parse, we just overwrite/append to an empty list
+			_ = json.Unmarshal(existingData, &fullJobs)
+		}
+	}
+	scraper, err := a.registry.GetScraper("indeed.com")
 	if err != nil {
 		errStr := "Error initializing scraper: " + err.Error()
 		finalRes.Errors = []string{errStr}
@@ -263,30 +310,31 @@ func (a *App) ExportBulkJSON(query string, results []SearchResult) (ExportResult
 	var errorDetails []string
 
 	for i, res := range results {
-		// Construct the Indeed URL
-		url := fmt.Sprintf("https://ar.indeed.com/viewjob?jk=%s", res.JobID)
+		jobURL := fmt.Sprintf("https://ar.indeed.com/viewjob?jk=%s", res.JobID)
 
-		jobData, err := scraper.Scrape(url)
-		if err == nil && jobData.JobTitle != "" {
+		jobData, scrapeErr := scraper.Scrape(jobURL)
+
+		if scrapeErr == nil && jobData.JobTitle != "" {
 			fullJobs = append(fullJobs, jobData)
 			successCount++
 		} else {
-			// If scrape fails, we do not add it to the file.
 			errorCount++
 			errMsg := "Error leyendo título/descripción"
-			if err != nil {
-				errMsg = err.Error()
+			if scrapeErr != nil {
+				errMsg = scrapeErr.Error()
 			}
 			errorDetails = append(errorDetails, fmt.Sprintf("- %s (ID: %s): %s", res.Title, res.JobID, errMsg))
 		}
 
-		// Emit progress to the frontend
+		// Emit progress with live success/error counts
 		runtime.EventsEmit(a.ctx, "export-progress", map[string]interface{}{
 			"current": i + 1,
 			"total":   total,
+			"success": successCount,
+			"errors":  errorCount,
 		})
 
-		// Sleep between requests with a bit of randomness (1s to 2s) to escape "Too many requests"
+		// Sleep between requests (1s to 2s)
 		time.Sleep(time.Duration(1000+rand.Intn(1000)) * time.Millisecond)
 	}
 
@@ -294,30 +342,22 @@ func (a *App) ExportBulkJSON(query string, results []SearchResult) (ExportResult
 	finalRes.ErrorCount = errorCount
 	finalRes.Errors = errorDetails
 
-	// Make sure we have something to save
 	if len(fullJobs) > 0 {
-		fmt.Printf("[DEBUG] Marshaling %d jobs...\n", len(fullJobs))
 		data, marshalErr := json.MarshalIndent(fullJobs, "", "  ")
 		if marshalErr != nil {
-			fmt.Printf("[ERROR] Marshal error: %v\n", marshalErr)
 			finalRes.Errors = append(finalRes.Errors, "Error al procesar JSON: "+marshalErr.Error())
 			runtime.EventsEmit(a.ctx, "export-finished", finalRes)
 			return finalRes, marshalErr
 		}
 
-		fmt.Printf("[DEBUG] Writing to %s...\n", path)
 		if writeErr := os.WriteFile(path, data, 0644); writeErr != nil {
-			fmt.Printf("[ERROR] Write error: %v\n", writeErr)
 			finalRes.Errors = append(finalRes.Errors, "Error al escribir archivo: "+writeErr.Error())
 			runtime.EventsEmit(a.ctx, "export-finished", finalRes)
 			return finalRes, writeErr
 		}
 	}
 
-	fmt.Printf("[DEBUG] Export finished logically. Success: %d, Errors: %d\n", successCount, errorCount)
-	// Give more time for the UI to process the last progress event
 	time.Sleep(500 * time.Millisecond)
-	// For extra safety, emit the event EVEN IF we return the value
 	runtime.EventsEmit(a.ctx, "export-finished", finalRes)
 	return finalRes, nil
 }

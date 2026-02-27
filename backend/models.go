@@ -23,6 +23,7 @@ type ExportResult struct {
 	SuccessCount int      `json:"successCount"`
 	ErrorCount   int      `json:"errorCount"`
 	Errors       []string `json:"errors"`
+	FilePath     string   `json:"filePath"`
 }
 
 type SearchResponse struct {

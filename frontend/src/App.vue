@@ -1,6 +1,6 @@
 <script setup>
 import { reactive, ref, onMounted, watch } from 'vue'
-import { ScrapeJob, ExportJSON, BulkScrape, ExportBulkJSON, OpenURL, SetSessionCookie, CheckSessionCookie, GetClipboardText } from '../wailsjs/go/backend/App'
+import { ScrapeJob, ExportJSON, BulkScrape, ExportBulkJSON, OpenURL, SetSessionCookie, CheckSessionCookie, GetClipboardText, CancelSearch } from '../wailsjs/go/backend/App'
 import { EventsOn } from '../wailsjs/runtime/runtime'
 import SplashScreen from './components/SplashScreen.vue'
 import ScrapingLoader from './components/ScrapingLoader.vue'
@@ -32,14 +32,18 @@ const state = reactive({
   scrapingCurrent: 0,
   scrapingTotal: 0,
   scrapingFound: 0,
-  // Pagination
+  scrapingPage: 0,
+  // Pagination (no longer used for "load more" but kept for offset tracking)
   nextOffset: 0,
   hasMore: false,
   isSearching: false,
   isBlockedByLogin: false,
   manualCookie: '',
   showCookieInput: false,
-  hasSavedCookie: false
+  hasSavedCookie: false,
+  // Live export counters
+  exportSuccess: 0,
+  exportErrors: 0
 })
 
 const toggleTheme = () => {
@@ -69,8 +73,10 @@ const handleExportComplete = (res) => {
     state.exportSummary = {
       success: res.successCount || 0,
       errors: res.errorCount || 0,
-      details: res.errors || []
+      details: res.errors || [],
+      filePath: res.filePath || ''
     }
+
   }
 }
 
@@ -122,6 +128,14 @@ const doBulkScrap = async (isNew = true) => {
     state.loading = false
     state.isSearching = false
   }
+}
+
+const handleCancelSearch = async () => {
+    try {
+        await CancelSearch()
+    } catch (err) {
+        console.error('Cancel error:', err)
+    }
 }
 
 const handleOpenLogin = () => {
@@ -178,8 +192,9 @@ const doBulkExport = async () => {
   state.exportFinished = false
   state.exportProgress = 0
   try {
-    const res = await ExportBulkJSON(state.bulkQuery, state.bulkResults)
+    const res = await ExportBulkJSON(state.bulkQuery, state.bulkPlatform, state.bulkResults, '')
     if (!state.exportFinished) {
+
         handleExportComplete(res)
     }
   } catch (err) {
@@ -191,6 +206,39 @@ const doBulkExport = async () => {
 const closeExport = () => {
   state.isExporting = false
   state.exportFinished = false
+}
+
+const retryFailedExport = async () => {
+  // Extract failed job IDs from error details (format: "- Title (ID: xxxx): error")
+  const failedIds = state.exportSummary.details
+    .map(d => {
+      const match = d.match(/\(ID:\s*([a-f0-9]+)\)/)
+      return match ? match[1] : null
+    })
+    .filter(Boolean)
+  
+  if (failedIds.length === 0) return
+
+  // Filter bulkResults to only the failed ones
+  const failedResults = state.bulkResults.filter(r => failedIds.includes(r.job_id))
+  if (failedResults.length === 0) return
+
+  state.exportFinished = false
+  state.exportProgress = 0
+  state.exportSuccess = 0
+  state.exportErrors = 0
+  
+  try {
+    // Pass the original file path so backend appends to it instead of asking for a new file
+    const res = await ExportBulkJSON(state.bulkQuery, state.bulkPlatform, failedResults, state.exportSummary.filePath)
+    if (!state.exportFinished) {
+
+        handleExportComplete(res)
+    }
+  } catch (err) {
+    state.error = 'Error al reintentar: ' + err
+    state.isExporting = false
+  }
 }
 
 const doScrap = async () => {
@@ -243,12 +291,14 @@ onMounted(() => {
     state.exportCurrent = data.current
     state.exportTotal = data.total
     state.exportProgress = data.total > 0 ? (data.current / data.total) * 100 : 0
+    state.exportSuccess = data.success || 0
+    state.exportErrors = data.errors || 0
   })
 
   EventsOn('scraping-progress', (data) => {
     state.scrapingCurrent = data.current
-    state.scrapingTotal = data.total
     state.scrapingFound = data.found
+    state.scrapingPage = data.page || 0
   })
 
   EventsOn('export-finished', (res) => {
@@ -267,8 +317,9 @@ onMounted(() => {
   <ScrapingLoader 
     v-if="state.isSearching" 
     :current="state.scrapingCurrent" 
-    :total="state.scrapingTotal"
     :found="state.scrapingFound"
+    :page="state.scrapingPage"
+    @cancel="handleCancelSearch"
   />
   
   <main v-else class="h-screen w-full p-6 pb-10 flex flex-col gap-6 overflow-hidden bg-slate-50/30 dark:bg-slate-900 transition-colors duration-300">
@@ -281,7 +332,7 @@ onMounted(() => {
       </div>
       <div class="flex-1 flex items-center justify-between">
         <div class="flex flex-col">
-          <h1 class="text-2xl font-bold text-slate-800 dark:text-slate-100 leading-tight">JDSA Assistant</h1>
+          <h1 class="text-2xl font-bold text-slate-800 dark:text-slate-100 leading-tight">JDS Assistant</h1>
           <p class="text-sm text-slate-500 dark:text-slate-400">Extractor de Descripciones de Empleo</p>
         </div>
         <!-- Mode Switcher moved here -->
@@ -437,37 +488,37 @@ onMounted(() => {
               Abrir Indeed
             </button>
           </div>
+        </div>
 
-          <!-- Advanced Cookie Input (Persistent) -->
-          <div v-if="state.showCookieInput && state.bulkPlatform === 'indeed'" class="p-3 bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-700 rounded-xl animate-in fade-in zoom-in-95 duration-200">
-            <p class="text-[10px] text-slate-500 dark:text-slate-400 mb-2 font-medium">Pegá tu Cookie de Indeed para habilitar paginación:</p>
-            <div class="flex gap-2">
-              <button 
-                @click="handlePasteCookie"
-                class="px-3 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-[11px] font-bold rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-600 flex items-center gap-1.5 shrink-0 transition-colors"
-                title="Pegar desde el portapapeles"
-              >
-                <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2M9 5a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2M9 5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2m-6 9h4m-4 4h4"/>
-                </svg>
-                Pegar
-              </button>
-              <input 
-                v-model="state.manualCookie"
-                type="text" 
-                placeholder="Session Cookie..."
-                class="flex-1 px-3 py-1.5 text-[11px] rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-              />
-              <button 
-                @click="handleSaveCookie"
-                class="px-3 py-1.5 bg-indigo-600 text-white text-[11px] font-bold rounded-lg hover:bg-indigo-700"
-              >
-                Guardar
-              </button>
-            </div>
-            <p class="text-[9px] text-slate-400 mt-2 italic">Tip: Usá el siguiente script en la consola de Indeed para obtenerla.</p>
-            <div class="mt-1 p-2 bg-slate-900 rounded font-mono text-[9px] text-indigo-300 overflow-x-auto whitespace-pre select-all">copy(document.cookie); console.log("Cookie copiada al portapapeles!");</div>
+        <!-- Advanced Cookie Input (independent of login block) -->
+        <div v-if="state.showCookieInput && state.bulkPlatform === 'indeed'" class="mt-2 p-3 bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-700 rounded-xl animate-in fade-in zoom-in-95 duration-200">
+          <p class="text-[10px] text-slate-500 dark:text-slate-400 mb-2 font-medium">Pegá tu Cookie de Indeed para habilitar paginación:</p>
+          <div class="flex gap-2">
+            <button 
+              @click="handlePasteCookie"
+              class="px-3 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-[11px] font-bold rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-600 flex items-center gap-1.5 shrink-0 transition-colors"
+              title="Pegar desde el portapapeles"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2M9 5a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2M9 5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2m-6 9h4m-4 4h4"/>
+              </svg>
+              Pegar
+            </button>
+            <input 
+              v-model="state.manualCookie"
+              type="text" 
+              placeholder="Session Cookie..."
+              class="flex-1 px-3 py-1.5 text-[11px] rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            />
+            <button 
+              @click="handleSaveCookie"
+              class="px-3 py-1.5 bg-indigo-600 text-white text-[11px] font-bold rounded-lg hover:bg-indigo-700"
+            >
+              Guardar
+            </button>
           </div>
+          <p class="text-[9px] text-slate-400 mt-2 italic">Tip: Usá el siguiente script en la consola de Indeed para obtenerla.</p>
+          <div class="mt-1 p-2 bg-slate-900 rounded font-mono text-[9px] text-indigo-300 overflow-x-auto whitespace-pre select-all">copy(document.cookie); console.log("Cookie copiada al portapapeles!");</div>
         </div>
       </div>
     </section>
@@ -722,6 +773,18 @@ onMounted(() => {
               {{ Math.round(state.exportProgress) }}%
             </div>
           </div>
+
+          <!-- Live counters -->
+          <div class="w-full flex gap-3">
+            <div class="flex-1 bg-emerald-50 dark:bg-emerald-900/20 p-2 rounded-xl border border-emerald-100 dark:border-emerald-800 text-center">
+              <p class="text-[9px] font-bold uppercase text-emerald-500 dark:text-emerald-400">Exitosos</p>
+              <p class="text-lg font-bold text-emerald-600 dark:text-emerald-400">{{ state.exportSuccess }}</p>
+            </div>
+            <div class="flex-1 bg-red-50 dark:bg-red-900/20 p-2 rounded-xl border border-red-100 dark:border-red-800 text-center">
+              <p class="text-[9px] font-bold uppercase text-red-400 dark:text-red-400">Errores</p>
+              <p class="text-lg font-bold text-red-500 dark:text-red-400">{{ state.exportErrors }}</p>
+            </div>
+          </div>
         </template>
 
         <!-- Summary View (Shown when finished) -->
@@ -761,6 +824,13 @@ onMounted(() => {
               class="w-full mt-4 py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 active:scale-95 transition-all shadow-lg shadow-indigo-100 dark:shadow-indigo-900/30"
             >
               Entendido
+            </button>
+            <button 
+              v-if="state.exportSummary.errors > 0"
+              @click="retryFailedExport"
+              class="w-full py-2.5 bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400 font-bold rounded-xl hover:bg-amber-100 dark:hover:bg-amber-900/30 active:scale-95 transition-all border border-amber-200 dark:border-amber-800 text-sm"
+            >
+              ⟳ Reintentar fallidos ({{ state.exportSummary.errors }})
             </button>
           </div>
         </template>

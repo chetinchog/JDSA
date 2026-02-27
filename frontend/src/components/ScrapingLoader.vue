@@ -1,31 +1,20 @@
 <script setup>
-import { computed } from 'vue'
-
 const props = defineProps({
   current: {
     type: Number,
     default: 0
   },
-  total: {
-    type: Number,
-    default: 5
-  },
   found: {
+    type: Number,
+    default: 0
+  },
+  page: {
     type: Number,
     default: 0
   }
 })
 
-const progress = computed(() => {
-  if (props.total === 0) return 0
-  return (props.current / props.total) * 100
-})
-
-const statusMessage = computed(() => {
-  if (props.current === 1) return 'Iniciando búsqueda en Indeed...'
-  if (props.current === props.total) return 'Finalizando y organizando resultados...'
-  return `Escaneando página ${props.current} de ${props.total}...`
-})
+const emit = defineEmits(['cancel'])
 </script>
 
 <template>
@@ -38,8 +27,8 @@ const statusMessage = computed(() => {
         <div class="absolute inset-0 bg-indigo-500/20 dark:bg-indigo-500/10 rounded-full animate-ping"></div>
         <div class="absolute inset-4 bg-indigo-500/10 dark:bg-indigo-500/5 rounded-full animate-ping" style="animation-delay: 0.5s"></div>
         
-        <!-- Rotating ring -->
-        <svg class="absolute inset-0 w-full h-full -rotate-90">
+        <!-- Rotating ring (infinite spin) -->
+        <svg class="absolute inset-0 w-full h-full animate-spin" style="animation-duration: 3s;">
           <circle 
             cx="64" cy="64" r="60" 
             class="stroke-slate-100 dark:stroke-slate-700 fill-none" 
@@ -47,11 +36,11 @@ const statusMessage = computed(() => {
           />
           <circle 
             cx="64" cy="64" r="60" 
-            class="stroke-indigo-500 fill-none transition-all duration-700 ease-in-out" 
+            class="stroke-indigo-500 fill-none" 
             stroke-width="8" 
             stroke-linecap="round"
             :stroke-dasharray="2 * Math.PI * 60"
-            :stroke-dashoffset="2 * Math.PI * 60 * (1 - progress / 100)"
+            :stroke-dashoffset="2 * Math.PI * 60 * 0.75"
           />
         </svg>
 
@@ -67,21 +56,24 @@ const statusMessage = computed(() => {
       <div class="text-center space-y-3">
         <h3 class="text-xl font-bold text-slate-800 dark:text-slate-100 italic">JDSA Engine</h3>
         <p class="text-sm font-medium text-slate-500 dark:text-slate-400 min-h-[1.25rem]">
-          {{ statusMessage }}
+          Escaneando empleos en Indeed...
         </p>
       </div>
 
       <!-- Stats -->
-      <div class="w-full flex gap-3">
-        <div class="flex-1 bg-slate-50 dark:bg-slate-900/50 p-4 rounded-3xl border border-slate-100 dark:border-slate-700 flex flex-col items-center">
-          <span class="text-[10px] font-bold uppercase text-slate-400 dark:text-slate-500 tracking-widest mb-1">Encontrados</span>
-          <span class="text-2xl font-black text-indigo-600 dark:text-indigo-400">{{ found }}</span>
-        </div>
-        <div class="flex-1 bg-slate-50 dark:bg-slate-900/50 p-4 rounded-3xl border border-slate-100 dark:border-slate-700 flex flex-col items-center">
-          <span class="text-[10px] font-bold uppercase text-slate-400 dark:text-slate-500 tracking-widest mb-1">Página</span>
-          <span class="text-2xl font-black text-slate-700 dark:text-slate-200">{{ current }}<span class="text-xs text-slate-400 font-normal">/{{ total }}</span></span>
-        </div>
+      <div class="w-full bg-slate-50 dark:bg-slate-900/50 p-5 rounded-3xl border border-slate-100 dark:border-slate-700 flex flex-col items-center">
+        <span class="text-[10px] font-bold uppercase text-slate-400 dark:text-slate-500 tracking-widest mb-1">Empleos encontrados</span>
+        <span class="text-4xl font-black text-indigo-600 dark:text-indigo-400">{{ found }}</span>
+        <span class="text-[11px] text-slate-400 dark:text-slate-500 mt-2">Página {{ page }} revisada</span>
       </div>
+
+      <!-- Cancel Button -->
+      <button 
+        @click="emit('cancel')"
+        class="w-full py-3 bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300 font-bold rounded-xl hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20 dark:hover:text-red-400 active:scale-95 transition-all border border-slate-200 dark:border-slate-600"
+      >
+        Cancelar búsqueda
+      </button>
 
       <!-- Decorative dots -->
       <div class="flex gap-2">
