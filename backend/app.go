@@ -151,6 +151,15 @@ func (a *App) CheckSessionCookie(platform string) bool {
 	return scraper.HasSessionCookie()
 }
 
+// GetSessionCookie returns the current session cookie for a platform.
+func (a *App) GetSessionCookie(platform string) (string, error) {
+	scraper, err := a.registry.GetScraper(platform)
+	if err != nil {
+		return "", err
+	}
+	return scraper.GetSessionCookie(), nil
+}
+
 // GetClipboardText returns the content of the system clipboard.
 func (a *App) GetClipboardText() (string, error) {
 	return runtime.ClipboardGetText(a.ctx)

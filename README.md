@@ -16,6 +16,9 @@ JDSA es una herramienta de escritorio moderna diseñada para extraer y organizar
 - **Seguridad**: Validación de URLs con protección contra SSRF (bloquea IPs privadas, localhost, esquemas no-HTTP).
 - **Detección de Vacantes Expiradas**: Identifica automáticamente empleos que ya no están disponibles mediante señales de metadatos, selectores de alerta y datos estructurados, mostrando un badge de "Expirado".
 - **Anti-Bloqueo**: Implementa headers dinámicos y respaldo en datos estructurados (JSON-LD) para máxima estabilidad.
+- **Autenticación con Google**: Integración segura con Firebase Auth para acceso controlado.
+- **Persistencia en la Nube**: Guardado de cookies de sesión y preferencias de usuario en Firebase Firestore, permitiendo mantener sesiones activas entre reinicios.
+- **Gestión de Cuentas**: Sistema de activación de usuarios ("is_enabled") para control administrativo del acceso a la herramienta.
 
 ## 🛠️ Tecnologías
 

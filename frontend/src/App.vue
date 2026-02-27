@@ -1,6 +1,6 @@
 <script setup>
 import { reactive, ref, onMounted, watch } from 'vue'
-import { ScrapeJob, ExportJSON, BulkScrape, ExportBulkJSON, OpenURL, SetSessionCookie, CheckSessionCookie, GetClipboardText, CancelSearch } from '../wailsjs/go/backend/App'
+import { ScrapeJob, ExportJSON, BulkScrape, ExportBulkJSON, OpenURL, SetSessionCookie, GetSessionCookie, CheckSessionCookie, GetClipboardText, CancelSearch } from '../wailsjs/go/backend/App'
 import { EventsOn } from '../wailsjs/runtime/runtime'
 import SplashScreen from './components/SplashScreen.vue'
 import ScrapingLoader from './components/ScrapingLoader.vue'
@@ -51,7 +51,8 @@ const state = reactive({
   // Auth state
   authStatus: 'loading', // 'loading', 'unauthenticated', 'waiting', 'authenticated'
   user: null,
-  userData: null
+  userData: null,
+  lastCheckedCookie: ''
 })
 
 const toggleTheme = () => {
@@ -78,14 +79,22 @@ const checkAuth = () => {
   onAuthStateChanged(auth, (user) => {
     if (user) {
       state.user = user
-      onUserSnapshot(user.uid, (data) => {
+      onUserSnapshot(user.uid, async (data) => {
         state.userData = data
         if (data && data.is_enabled) {
           state.authStatus = 'authenticated'
           
-          // Apply stored cookies for indeed
-          if (data.cookies_indeed) {
-             SetSessionCookie('indeed.com', data.cookies_indeed).then(() => checkCookies())
+          // Apply stored cookies for indeed if they changed
+          const firebaseCookie = data.cookies_indeed || ''
+          if (firebaseCookie) {
+             console.log("Syncing Indeed cookie from Firebase to Backend...")
+             await SetSessionCookie('indeed', firebaseCookie)
+             state.lastCheckedCookie = firebaseCookie
+             await checkCookies()
+          } else {
+             console.log("No Indeed cookie found in Firebase.")
+             state.hasSavedCookie = false
+             state.showCookieInput = true
           }
         } else {
           state.authStatus = 'waiting'
@@ -95,6 +104,7 @@ const checkAuth = () => {
       state.authStatus = 'unauthenticated'
       state.user = null
       state.userData = null
+      state.lastCheckedCookie = ''
     }
   })
 }
@@ -194,17 +204,22 @@ const handleOpenLogin = () => {
 
 const handleSaveCookie = async () => {
     if (!state.manualCookie) return
+    state.loading = true
     try {
-        const platformKey = state.bulkPlatform === 'indeed' ? 'indeed.com' : state.bulkPlatform
+        const platformKey = state.bulkPlatform === 'indeed' ? 'indeed' : state.bulkPlatform
         await SetSessionCookie(platformKey, state.manualCookie)
         if (state.user) {
+            console.log("Saving cookie to Firebase for user:", state.user.uid)
             await updateUserCookie(state.user.uid, state.bulkPlatform, state.manualCookie)
         }
-        state.isBlockedByLogin = false
-        state.showCookieInput = false
+        state.lastCheckedCookie = state.manualCookie
         state.hasSavedCookie = true
+        state.showCookieInput = false
+        state.error = ''
     } catch (err) {
         state.error = 'Error al guardar cookie: ' + err
+    } finally {
+        state.loading = false
     }
 }
 
@@ -514,6 +529,22 @@ onMounted(() => {
             class="flex-1 px-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-700 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all placeholder:text-slate-400 dark:placeholder:text-slate-500 text-sm"
             @keyup.enter="doBulkScrap"
           />
+
+          <!-- Compact Session Badge (Inline) -->
+          <button 
+            v-if="state.hasSavedCookie && state.bulkPlatform === 'indeed'" 
+            @click="state.showCookieInput = !state.showCookieInput"
+            class="flex items-center gap-2 px-3 h-[42px] bg-slate-50 dark:bg-slate-700 border border-slate-200 dark:border-slate-600 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-600 transition-all shrink-0 active:scale-95 group self-center"
+            :class="{ 'ring-2 ring-indigo-500 border-transparent bg-indigo-50 dark:bg-indigo-900/20': state.showCookieInput }"
+            title="Ver/Cambiar sesión activa"
+          >
+            <div class="h-1.5 w-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]" :class="{ 'animate-pulse': !state.showCookieInput }"></div>
+            <span class="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest hidden sm:inline">Sesión</span>
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5 text-slate-400 group-hover:text-slate-600 dark:group-hover:text-slate-200 transition-transform duration-200" :class="{ 'rotate-180': state.showCookieInput }" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+
           <button 
             @click="doBulkScrap(true)"
             :disabled="state.loading"
@@ -524,12 +555,6 @@ onMounted(() => {
           </button>
         </div>
         
-        <!-- Saved Cookie Badge -->
-        <div v-if="state.hasSavedCookie && state.bulkPlatform === 'indeed' && !state.showCookieInput" class="flex items-center gap-1.5 px-2 py-1 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-100 dark:border-emerald-800 rounded-md w-fit">
-          <div class="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse"></div>
-          <span class="text-[10px] font-bold text-emerald-700 dark:text-emerald-400 uppercase tracking-tighter">Sesión Activa</span>
-          <button @click="state.showCookieInput = true" class="text-[10px] text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 underline ml-1">Cambiar</button>
-        </div>
         <p v-if="state.error" class="text-xs text-red-500 dark:text-red-400 mt-1">{{ state.error }}</p>
 
         <!-- Login Alert -->
@@ -562,35 +587,42 @@ onMounted(() => {
           </div>
         </div>
 
-        <!-- Advanced Cookie Input (independent of login block) -->
-        <div v-if="state.showCookieInput && state.bulkPlatform === 'indeed'" class="mt-2 p-3 bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-700 rounded-xl animate-in fade-in zoom-in-95 duration-200">
-          <p class="text-[10px] text-slate-500 dark:text-slate-400 mb-2 font-medium">Pegá tu Cookie de Indeed para habilitar paginación:</p>
-          <div class="flex gap-2">
-            <button 
-              @click="handlePasteCookie"
-              class="px-3 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-[11px] font-bold rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-600 flex items-center gap-1.5 shrink-0 transition-colors"
-              title="Pegar desde el portapapeles"
-            >
-              <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2M9 5a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2M9 5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2m-6 9h4m-4 4h4"/>
-              </svg>
-              Pegar
-            </button>
-            <input 
-              v-model="state.manualCookie"
-              type="text" 
-              placeholder="Session Cookie..."
-              class="flex-1 px-3 py-1.5 text-[11px] rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-            />
-            <button 
-              @click="handleSaveCookie"
-              class="px-3 py-1.5 bg-indigo-600 text-white text-[11px] font-bold rounded-lg hover:bg-indigo-700"
-            >
-              Guardar
-            </button>
+        <!-- Advanced Cookie Input (Refined Section) -->
+        <div v-if="state.showCookieInput && state.bulkPlatform === 'indeed'" class="mt-2 p-4 bg-slate-50/50 dark:bg-slate-900/30 border border-slate-200 dark:border-slate-700 rounded-2xl animate-in fade-in slide-in-from-top-1 duration-200">
+          <div class="flex flex-col gap-3">
+            <div class="flex items-center justify-between">
+              <p class="text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider">Configuración de Sesión (Indeed)</p>
+              <button @click="state.showCookieInput = false" class="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            
+            <div class="flex gap-2">
+              <button 
+                @click="handlePasteCookie"
+                class="px-3 py-2 bg-white dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-[11px] font-bold rounded-xl hover:bg-slate-50 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-600 flex items-center gap-2 shrink-0 transition-all shadow-sm active:scale-95"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5 text-indigo-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2M9 5a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2M9 5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2m-6 9h4m-4 4h4"/>
+                </svg>
+                Pegar
+              </button>
+              <input 
+                v-model="state.manualCookie"
+                type="password" 
+                placeholder="Session Cookie de Indeed..."
+                class="flex-1 px-4 py-2 text-[11px] rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
+              />
+              <button 
+                @click="handleSaveCookie"
+                class="px-4 py-2 bg-indigo-600 text-white text-[11px] font-bold rounded-xl hover:bg-indigo-700 shadow-md shadow-indigo-100 dark:shadow-indigo-900/20 active:scale-95 transition-all"
+              >
+                Guardar
+              </button>
+            </div>
           </div>
-          <p class="text-[9px] text-slate-400 mt-2 italic">Tip: Usá el siguiente script en la consola de Indeed para obtenerla.</p>
-          <div class="mt-1 p-2 bg-slate-900 rounded font-mono text-[9px] text-indigo-300 overflow-x-auto whitespace-pre select-all">copy(document.cookie); console.log("Cookie copiada al portapapeles!");</div>
         </div>
       </div>
     </section>
