@@ -260,8 +260,8 @@ func (s *IndeedScraper) ScrapeSearch(ctx context.Context, query string, startOff
 			}
 		}
 
-		currentReferer = searchURL
-		time.Sleep(time.Duration(1500+rand.Intn(1500)) * time.Millisecond)
+		// Randomized delay to mimic human behavior (1s to 2.5s)
+		time.Sleep(time.Duration(1000+rand.Intn(1500)) * time.Millisecond)
 	}
 
 	return SearchResponse{
@@ -275,4 +275,14 @@ func (s *IndeedScraper) ScrapeSearch(ctx context.Context, query string, startOff
 // SetSessionCookie sets the manual session cookie to bypass login walls.
 func (s *IndeedScraper) SetSessionCookie(cookie string) {
 	s.transport.SessionCookie = strings.TrimSpace(cookie)
+}
+
+// HasSessionCookie returns true if a session cookie is set.
+func (s *IndeedScraper) HasSessionCookie() bool {
+	return s.transport.SessionCookie != ""
+}
+
+// GetSessionCookie returns the current session cookie.
+func (s *IndeedScraper) GetSessionCookie() string {
+	return s.transport.SessionCookie
 }

@@ -1,68 +1,12 @@
 <script setup>
-import { reactive, ref, onMounted } from 'vue'
-import { ScrapeJob, ExportJSON, BulkScrape, ExportBulkJSON, OpenURL, SetSessionCookie } from '../wailsjs/go/backend/App'
+import { reactive, ref, onMounted, watch } from 'vue'
+import { ScrapeJob, ExportJSON, BulkScrape, ExportBulkJSON, OpenURL, SetSessionCookie, CheckSessionCookie, GetClipboardText } from '../wailsjs/go/backend/App'
 import { EventsOn } from '../wailsjs/runtime/runtime'
 import SplashScreen from './components/SplashScreen.vue'
 import ScrapingLoader from './components/ScrapingLoader.vue'
 
 const isDark = ref(false)
 const showSplash = ref(true)
-
-const toggleTheme = () => {
-  isDark.value = !isDark.value
-  document.documentElement.classList.toggle('dark', isDark.value)
-  localStorage.setItem('theme', isDark.value ? 'dark' : 'light')
-}
-
-onMounted(() => {
-  const saved = localStorage.getItem('theme')
-  if (saved === 'dark' || (!saved && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
-    isDark.value = true
-    document.documentElement.classList.add('dark')
-  }
-
-  // Listen for export progress
-  EventsOn('export-progress', (data) => {
-    console.log('Export Progress:', data.current, '/', data.total)
-    state.isExporting = true
-    state.exportCurrent = data.current
-    state.exportTotal = data.total
-    state.exportProgress = data.total > 0 ? (data.current / data.total) * 100 : 0
-  })
-
-  // Listen for search/scraping progress
-  EventsOn('scraping-progress', (data) => {
-    state.scrapingCurrent = data.current
-    state.scrapingTotal = data.total
-    state.scrapingFound = data.found
-  })
-
-  // Listen for export finished (as a backup to the promise)
-  EventsOn('export-finished', (res) => {
-    console.log('--- EVENT: export-finished received ---', res)
-    if (state.exportFinished) {
-      console.log('Already finished via promise, ignoring event.')
-      return
-    }
-    handleExportComplete(res)
-  })
-})
-
-const handleExportComplete = (res) => {
-  console.log('Finalizing UI with results:', res)
-  state.exportFinished = true
-  if (res) {
-    state.exportSummary = {
-      success: res.successCount || 0,
-      errors: res.errorCount || 0,
-      details: res.errors || []
-    }
-  }
-}
-
-const onSplashFinish = () => {
-  showSplash.value = false
-}
 
 const state = reactive({
   mode: 'bulk', // 'single' | 'bulk'
@@ -94,14 +38,45 @@ const state = reactive({
   isSearching: false,
   isBlockedByLogin: false,
   manualCookie: '',
-  showCookieInput: false
+  showCookieInput: false,
+  hasSavedCookie: false
 })
+
+const toggleTheme = () => {
+  isDark.value = !isDark.value
+  document.documentElement.classList.toggle('dark', isDark.value)
+  localStorage.setItem('theme', isDark.value ? 'dark' : 'light')
+}
+
+const onSplashFinish = () => {
+  showSplash.value = false
+}
+
+const checkCookies = async () => {
+    const hasCookie = await CheckSessionCookie(state.bulkPlatform)
+    state.hasSavedCookie = hasCookie
+    if (!hasCookie && state.bulkPlatform === 'indeed') {
+        state.showCookieInput = true
+    } else if (state.bulkPlatform !== 'indeed') {
+        state.showCookieInput = false
+    }
+}
+
+const handleExportComplete = (res) => {
+  console.log('Finalizing UI with results:', res)
+  state.exportFinished = true
+  if (res) {
+    state.exportSummary = {
+      success: res.successCount || 0,
+      errors: res.errorCount || 0,
+      details: res.errors || []
+    }
+  }
+}
 
 const setMode = (mode) => {
   state.mode = mode
   state.error = ''
-  // Reset results when switching modes? Maybe better to keep them?
-  // Let's keep them for now, but clear error.
 }
 
 const doBulkScrap = async (isNew = true) => {
@@ -149,46 +124,7 @@ const doBulkScrap = async (isNew = true) => {
   }
 }
 
-const doNinjaSearch = async () => {
-    state.loading = true
-    state.isSearching = true
-    state.isBlockedByLogin = false
-    state.error = ''
-    
-    // Variations to bypass pagination limits
-    const variations = ['', 'junior', 'senior', 'remote', 'remoto', 'hibrido']
-    const baseQuery = state.bulkQuery
-    
-    try {
-        for (const variant of variations) {
-            const query = variant ? `${baseQuery} ${variant}` : baseQuery
-            // We only fetch page 1 (offset 0) for each variation to avoid blocks
-            const res = await BulkScrape(query, state.bulkPlatform, 0)
-            if (res.results && res.results.length > 0) {
-                // Add unique results
-                res.results.forEach(newJob => {
-                    if (!state.bulkResults.find(j => j.jobId === newJob.jobId)) {
-                        state.bulkResults.push(newJob)
-                    }
-                })
-            }
-            // Add a small breather
-            await new Promise(r => setTimeout(r, 500))
-        }
-        
-        if (state.bulkResults.length === 0) {
-            state.error = 'No se encontraron resultados incluso con búsqueda expandida.'
-        }
-    } catch (err) {
-        state.error = 'Error en Búsqueda Ninja: ' + err
-    } finally {
-        state.loading = false
-        state.isSearching = false
-    }
-}
-
 const handleOpenLogin = () => {
-    // Open Indeed in results page
     const url = `https://ar.indeed.com/jobs?q=${encodeURIComponent(state.bulkQuery)}`
     OpenURL(url)
 }
@@ -199,16 +135,24 @@ const handleSaveCookie = async () => {
         await SetSessionCookie(state.bulkPlatform, state.manualCookie)
         state.isBlockedByLogin = false
         state.showCookieInput = false
-        // Trigger scraping again
-        doBulkScrap(false)
+        state.hasSavedCookie = true
     } catch (err) {
         state.error = 'Error al guardar cookie: ' + err
     }
 }
 
+const handlePasteCookie = async () => {
+    try {
+        const text = await GetClipboardText()
+        if (text) {
+            state.manualCookie = text
+        }
+    } catch (err) {
+        console.error('Clipboard error:', err)
+    }
+}
+
 const selectJob = async (jobId) => {
-  // Construct a URL for the specific job to reuse ScrapeJob
-  // Indeed URLs for jk are like: https://ar.indeed.com/viewjob?jk=...
   const url = `https://ar.indeed.com/viewjob?jk=${jobId}`
   state.jobUrl = url
   state.loading = true
@@ -230,21 +174,15 @@ const selectJob = async (jobId) => {
 
 const doBulkExport = async () => {
   if (state.bulkResults.length === 0) return
-  console.log('Starting Bulk Export...')
   state.isExporting = true
   state.exportFinished = false
   state.exportProgress = 0
   try {
     const res = await ExportBulkJSON(state.bulkQuery, state.bulkResults)
-    console.log('--- PROMISE: ExportBulkJSON resolved ---', res)
-    
-    if (state.exportFinished) {
-        console.log('Already finished via event, ignoring promise resolution.')
-        return
+    if (!state.exportFinished) {
+        handleExportComplete(res)
     }
-    handleExportComplete(res)
   } catch (err) {
-    console.error('Export Error:', err)
     state.error = 'Error al exportar: ' + err
     state.isExporting = false
   }
@@ -286,6 +224,41 @@ const doExport = async () => {
     state.error = 'Error al exportar: ' + err
   }
 }
+
+// Watchers
+watch(() => state.bulkPlatform, () => {
+    checkCookies()
+})
+
+// Lifecycle
+onMounted(() => {
+  const saved = localStorage.getItem('theme')
+  if (saved === 'dark' || (!saved && window.matchMedia('(prefers-color-scheme: dark)').matches)) {
+    isDark.value = true
+    document.documentElement.classList.add('dark')
+  }
+
+  EventsOn('export-progress', (data) => {
+    state.isExporting = true
+    state.exportCurrent = data.current
+    state.exportTotal = data.total
+    state.exportProgress = data.total > 0 ? (data.current / data.total) * 100 : 0
+  })
+
+  EventsOn('scraping-progress', (data) => {
+    state.scrapingCurrent = data.current
+    state.scrapingTotal = data.total
+    state.scrapingFound = data.found
+  })
+
+  EventsOn('export-finished', (res) => {
+    if (!state.exportFinished) {
+      handleExportComplete(res)
+    }
+  })
+
+  checkCookies()
+})
 </script>
 
 <template>
@@ -402,7 +375,7 @@ const doExport = async () => {
               class="absolute top-[calc(100%+0.5rem)] left-0 w-full bg-white dark:bg-slate-800 border border-slate-100 dark:border-slate-700 rounded-xl shadow-xl shadow-slate-200/50 dark:shadow-black/20 overflow-hidden flex flex-col animate-in fade-in slide-in-from-top-2 duration-200"
             >
               <button 
-                @click="state.bulkPlatform = 'indeed'; state.isPlatformDropdownOpen = false"
+                @click="state.bulkPlatform = 'indeed'; state.isPlatformDropdownOpen = false; checkCookies()"
                 class="w-full text-left px-4 py-3 text-sm text-slate-700 dark:text-slate-200 hover:bg-slate-50 dark:hover:bg-slate-700/50 transition-colors"
                 :class="{ 'font-semibold bg-indigo-50/50 dark:bg-indigo-900/20 text-indigo-700 dark:text-indigo-300': state.bulkPlatform === 'indeed' }"
               >
@@ -427,6 +400,13 @@ const doExport = async () => {
             {{ state.loading ? 'Buscando...' : 'Buscar' }}
           </button>
         </div>
+        
+        <!-- Saved Cookie Badge -->
+        <div v-if="state.hasSavedCookie && state.bulkPlatform === 'indeed' && !state.showCookieInput" class="flex items-center gap-1.5 px-2 py-1 bg-emerald-50 dark:bg-emerald-900/20 border border-emerald-100 dark:border-emerald-800 rounded-md w-fit">
+          <div class="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse"></div>
+          <span class="text-[10px] font-bold text-emerald-700 dark:text-emerald-400 uppercase tracking-tighter">Sesión Activa</span>
+          <button @click="state.showCookieInput = true" class="text-[10px] text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 underline ml-1">Cambiar</button>
+        </div>
         <p v-if="state.error" class="text-xs text-red-500 dark:text-red-400 mt-1">{{ state.error }}</p>
 
         <!-- Login Alert -->
@@ -442,24 +422,12 @@ const doExport = async () => {
                 <p class="text-[11px] text-amber-800 dark:text-amber-300 leading-tight">
                   Indeed bloqueó el acceso. <span class="font-bold">Iniciá sesión en tu navegador</span> para continuar.
                 </p>
-                <div class="flex gap-2 mt-2">
-                  <button 
-                    @click="state.showCookieInput = !state.showCookieInput"
-                    class="text-[10px] text-amber-600 dark:text-amber-400 underline"
-                  >
-                    {{ state.showCookieInput ? 'Ocultar método avanzado' : 'Usar método avanzado (Cookies)' }}
-                  </button>
-                  <span class="text-[10px] text-amber-400">•</span>
-                  <button 
-                    @click="doNinjaSearch"
-                    class="text-[10px] text-emerald-600 dark:text-emerald-400 font-bold hover:underline flex items-center gap-1"
-                  >
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3">
-                      <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
-                    </svg>
-                    Usar Búsqueda Ninja (Detección de Bloqueo)
-                  </button>
-                </div>
+                <button 
+                  @click="state.showCookieInput = !state.showCookieInput"
+                  class="text-[10px] text-amber-600 dark:text-amber-400 underline mt-1 block"
+                >
+                  {{ state.showCookieInput ? 'Ocultar configuración' : 'Configurar Cookie (Avanzado)' }}
+                </button>
               </div>
             </div>
             <button 
@@ -470,10 +438,20 @@ const doExport = async () => {
             </button>
           </div>
 
-          <!-- Advanced Cookie Input -->
-          <div v-if="state.showCookieInput" class="p-3 bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-700 rounded-xl animate-in fade-in zoom-in-95 duration-200">
-            <p class="text-[10px] text-slate-500 dark:text-slate-400 mb-2 font-medium">Pegá tu Cookie de sesión aquí:</p>
+          <!-- Advanced Cookie Input (Persistent) -->
+          <div v-if="state.showCookieInput && state.bulkPlatform === 'indeed'" class="p-3 bg-slate-50 dark:bg-slate-900/40 border border-slate-200 dark:border-slate-700 rounded-xl animate-in fade-in zoom-in-95 duration-200">
+            <p class="text-[10px] text-slate-500 dark:text-slate-400 mb-2 font-medium">Pegá tu Cookie de Indeed para habilitar paginación:</p>
             <div class="flex gap-2">
+              <button 
+                @click="handlePasteCookie"
+                class="px-3 py-1.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-[11px] font-bold rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-600 flex items-center gap-1.5 shrink-0 transition-colors"
+                title="Pegar desde el portapapeles"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2M9 5a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2M9 5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2m-6 9h4m-4 4h4"/>
+                </svg>
+                Pegar
+              </button>
               <input 
                 v-model="state.manualCookie"
                 type="text" 

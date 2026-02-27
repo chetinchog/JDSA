@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math/rand"
 	"net"
 	"net/url"
 	"os"
@@ -46,6 +47,7 @@ func isValidJobURL(rawURL string) error {
 type App struct {
 	ctx      context.Context
 	registry *ScraperRegistry
+	db       *Database
 }
 
 // NewApp creates a new App application struct
@@ -61,6 +63,32 @@ func NewApp() *App {
 // so we can call the runtime methods
 func (a *App) Startup(ctx context.Context) {
 	a.ctx = ctx
+	a.db = NewDatabase()
+	a.loadCookies()
+}
+
+func (a *App) loadCookies() {
+	if a.db == nil {
+		return
+	}
+
+	// We only have indeed for now
+	cookie, err := a.db.GetConfig("cookie_indeed.com")
+	if err == nil && cookie != "" {
+		if s, err := a.registry.GetScraper("indeed.com"); err == nil {
+			s.SetSessionCookie(cookie)
+		}
+	}
+}
+
+func (a *App) saveCookies() {
+	if a.db == nil {
+		return
+	}
+
+	if s, err := a.registry.GetScraper("indeed.com"); err == nil {
+		_ = a.db.SetConfig("cookie_indeed.com", s.GetSessionCookie())
+	}
 }
 
 // ScrapeJob extracts job information from a given URL using the appropriate scraper.
@@ -104,7 +132,22 @@ func (a *App) SetSessionCookie(platform string, cookie string) error {
 		return err
 	}
 	scraper.SetSessionCookie(cookie)
+	a.saveCookies()
 	return nil
+}
+
+// CheckSessionCookie returns true if the given platform has a cookie set.
+func (a *App) CheckSessionCookie(platform string) bool {
+	scraper, err := a.registry.GetScraper(platform)
+	if err != nil {
+		return false
+	}
+	return scraper.HasSessionCookie()
+}
+
+// GetClipboardText returns the content of the system clipboard.
+func (a *App) GetClipboardText() (string, error) {
+	return runtime.ClipboardGetText(a.ctx)
 }
 
 // cleanScrapedText removes CSS blocks {...}, CSS classes, and HTML tags from the text
@@ -242,6 +285,9 @@ func (a *App) ExportBulkJSON(query string, results []SearchResult) (ExportResult
 			"current": i + 1,
 			"total":   total,
 		})
+
+		// Sleep between requests with a bit of randomness (1s to 2s) to escape "Too many requests"
+		time.Sleep(time.Duration(1000+rand.Intn(1000)) * time.Millisecond)
 	}
 
 	finalRes.SuccessCount = successCount
