@@ -17,3 +17,9 @@ type SearchResult struct {
 	Company  string `json:"company"`
 	Location string `json:"location"`
 }
+
+type ExportResult struct {
+	SuccessCount int      `json:"successCount"`
+	ErrorCount   int      `json:"errorCount"`
+	Errors       []string `json:"errors"`
+}

@@ -197,7 +197,7 @@ func (s *IndeedScraper) Scrape(targetURL string) (JobData, error) {
 // ScrapeSearch extracts a list of jobs from a search query on Indeed.
 func (s *IndeedScraper) ScrapeSearch(query string) ([]SearchResult, error) {
 	var results []SearchResult
-	searchURL := fmt.Sprintf("https://ar.indeed.com/jobs?q=%s&sort=date", url.QueryEscape(query))
+	searchURL := fmt.Sprintf("https://ar.indeed.com/jobs?q=%s", url.QueryEscape(query))
 
 	c := colly.NewCollector(
 		colly.UserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"),

@@ -163,7 +163,8 @@ func (a *App) ExportJSON(job JobData) error {
 }
 
 // ExportBulkJSON saves the list of jobs found in search as a JSON file, fetching full details for each
-func (a *App) ExportBulkJSON(query string, results []SearchResult) error {
+func (a *App) ExportBulkJSON(query string, results []SearchResult) (ExportResult, error) {
+	var finalRes ExportResult
 	now := time.Now().Format("200601021504")
 	strQuery := strings.ToUpper(query)
 	re := regexp.MustCompile(`[^A-Z0-9]+`)
@@ -182,17 +183,20 @@ func (a *App) ExportBulkJSON(query string, results []SearchResult) error {
 		},
 	})
 	if err != nil {
-		return err
+		finalRes.Errors = []string{err.Error()}
+		return finalRes, err
 	}
 	if path == "" {
-		return nil
+		return finalRes, nil
 	}
 
 	// Fetch full details for each job
 	var fullJobs []JobData
 	scraper, err := a.registry.GetScraper("indeed.com") // Assume Indeed for now as it's the only bulk source
 	if err != nil {
-		return fmt.Errorf("could not get scraper for full data: %v", err)
+		errStr := "Error initializing scraper: " + err.Error()
+		finalRes.Errors = []string{errStr}
+		return finalRes, fmt.Errorf(errStr)
 	}
 
 	total := len(results)
@@ -225,38 +229,34 @@ func (a *App) ExportBulkJSON(query string, results []SearchResult) error {
 		})
 	}
 
+	finalRes.SuccessCount = successCount
+	finalRes.ErrorCount = errorCount
+	finalRes.Errors = errorDetails
+
 	// Make sure we have something to save
 	if len(fullJobs) > 0 {
+		fmt.Printf("[DEBUG] Marshaling %d jobs...\n", len(fullJobs))
 		data, marshalErr := json.MarshalIndent(fullJobs, "", "  ")
 		if marshalErr != nil {
-			return marshalErr
+			fmt.Printf("[ERROR] Marshal error: %v\n", marshalErr)
+			finalRes.Errors = append(finalRes.Errors, "Error al procesar JSON: "+marshalErr.Error())
+			runtime.EventsEmit(a.ctx, "export-finished", finalRes)
+			return finalRes, marshalErr
 		}
 
+		fmt.Printf("[DEBUG] Writing to %s...\n", path)
 		if writeErr := os.WriteFile(path, data, 0644); writeErr != nil {
-			return writeErr
+			fmt.Printf("[ERROR] Write error: %v\n", writeErr)
+			finalRes.Errors = append(finalRes.Errors, "Error al escribir archivo: "+writeErr.Error())
+			runtime.EventsEmit(a.ctx, "export-finished", finalRes)
+			return finalRes, writeErr
 		}
 	}
 
-	// Show summary to the user
-	msg := fmt.Sprintf("Se exportaron %d empleos exitosamente.", successCount)
-	dialogType := runtime.InfoDialog
-	title := "Exportación Completada"
-
-	if errorCount > 0 {
-		msg += fmt.Sprintf("\n\nHubo %d errores:\n%s", errorCount, strings.Join(errorDetails, "\n"))
-		dialogType = runtime.WarningDialog
-		title = "Resumen de Exportación (con advertencias)"
-	} else if len(fullJobs) == 0 {
-		msg = "No se pudo exportar ningún empleo."
-		dialogType = runtime.ErrorDialog
-		title = "Error de Exportación"
-	}
-
-	_, _ = runtime.MessageDialog(a.ctx, runtime.MessageDialogOptions{
-		Type:    dialogType,
-		Title:   title,
-		Message: msg,
-	})
-
-	return nil
+	fmt.Printf("[DEBUG] Export finished logically. Success: %d, Errors: %d\n", successCount, errorCount)
+	// Give more time for the UI to process the last progress event
+	time.Sleep(500 * time.Millisecond)
+	// For extra safety, emit the event EVEN IF we return the value
+	runtime.EventsEmit(a.ctx, "export-finished", finalRes)
+	return finalRes, nil
 }

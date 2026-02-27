@@ -22,12 +22,35 @@ onMounted(() => {
 
   // Listen for export progress
   EventsOn('export-progress', (data) => {
+    console.log('Export Progress:', data.current, '/', data.total)
     state.isExporting = true
     state.exportCurrent = data.current
     state.exportTotal = data.total
     state.exportProgress = data.total > 0 ? (data.current / data.total) * 100 : 0
   })
+
+  // Listen for export finished (as a backup to the promise)
+  EventsOn('export-finished', (res) => {
+    console.log('--- EVENT: export-finished received ---', res)
+    if (state.exportFinished) {
+      console.log('Already finished via promise, ignoring event.')
+      return
+    }
+    handleExportComplete(res)
+  })
 })
+
+const handleExportComplete = (res) => {
+  console.log('Finalizing UI with results:', res)
+  state.exportFinished = true
+  if (res) {
+    state.exportSummary = {
+      success: res.successCount || 0,
+      errors: res.errorCount || 0,
+      details: res.errors || []
+    }
+  }
+}
 
 const onSplashFinish = () => {
   showSplash.value = false
@@ -44,6 +67,12 @@ const state = reactive({
   bulkResults: [], // List of jobs from search
   isPlatformDropdownOpen: false,
   isExporting: false,
+  exportFinished: false,
+  exportSummary: {
+    success: 0,
+    errors: 0,
+    details: []
+  },
   exportProgress: 0,
   exportCurrent: 0,
   exportTotal: 0
@@ -103,15 +132,29 @@ const selectJob = async (jobId) => {
 
 const doBulkExport = async () => {
   if (state.bulkResults.length === 0) return
+  console.log('Starting Bulk Export...')
+  state.isExporting = true
+  state.exportFinished = false
+  state.exportProgress = 0
   try {
-    await ExportBulkJSON(state.bulkQuery, state.bulkResults)
+    const res = await ExportBulkJSON(state.bulkQuery, state.bulkResults)
+    console.log('--- PROMISE: ExportBulkJSON resolved ---', res)
+    
+    if (state.exportFinished) {
+        console.log('Already finished via event, ignoring promise resolution.')
+        return
+    }
+    handleExportComplete(res)
   } catch (err) {
+    console.error('Export Error:', err)
     state.error = 'Error al exportar: ' + err
-  } finally {
-    setTimeout(() => {
-      state.isExporting = false
-    }, 2000)
+    state.isExporting = false
   }
+}
+
+const closeExport = () => {
+  state.isExporting = false
+  state.exportFinished = false
 }
 
 const doScrap = async () => {
@@ -471,53 +514,92 @@ const doExport = async () => {
     <!-- Export Progress Overlay -->
     <div v-if="state.isExporting" class="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/80 backdrop-blur-sm animate-in fade-in duration-300">
       <div class="bg-white dark:bg-slate-800 p-8 rounded-3xl shadow-2xl max-w-md w-full mx-4 border border-slate-100 dark:border-slate-700 flex flex-col items-center justify-center gap-6 animate-in zoom-in-95 duration-500 delay-100">
-        <!-- Animated Icon Container -->
-        <div class="relative w-24 h-24 mb-2 flex items-center justify-center">
+        <!-- Animated Icon Container (Only show if NOT finished) -->
+        <div v-if="!state.exportFinished" class="relative w-24 h-24 mb-2 flex items-center justify-center">
           <!-- Outer rotating ring -->
           <div class="absolute inset-0 border-4 border-indigo-100 dark:border-indigo-900/50 rounded-full"></div>
           <div class="absolute inset-0 border-4 border-indigo-500 rounded-full border-t-transparent animate-spin" style="animation-duration: 2s;"></div>
           
           <!-- Inner bouncing icon -->
           <div class="animate-bounce mt-1">
-            <svg v-if="state.exportProgress < 100" xmlns="http://www.w3.org/2000/svg" class="h-10 w-10 text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10 text-indigo-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 14l-7 7m0 0l-7-7m7 7V3" />
             </svg>
-            <svg v-else xmlns="http://www.w3.org/2000/svg" class="h-12 w-12 text-emerald-500" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
-            </svg>
           </div>
         </div>
 
-        <!-- Text constraints -->
-        <div class="text-center flex flex-col gap-2">
-          <h2 class="text-2xl font-bold bg-gradient-to-r from-indigo-600 to-indigo-400 bg-clip-text text-transparent">
-            {{ state.exportProgress === 100 ? '¡Exportación completada!' : 'Exportando empleos...' }}
-          </h2>
-          <p class="text-slate-500 dark:text-slate-400 text-sm max-w-[280px] mx-auto">
-            {{ state.exportProgress === 100 ? 'Todos los datos han sido guardados.' : 'Exportando los detalles de las Descripciones de Empleo' }}
-          </p>
-        </div>
-
-        <!-- Progress Bar -->
-        <div class="w-full space-y-2 mt-2">
-          <div class="flex justify-between text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-            <span>{{ state.exportProgress < 100 ? 'Progreso' : '¡Listo!' }}</span>
-            <span>{{ state.exportCurrent }} / {{ state.exportTotal }}</span>
+        <!-- Progress View (Only show if NOT finished) -->
+        <template v-if="!state.exportFinished">
+          <div class="text-center flex flex-col gap-2">
+            <h2 class="text-2xl font-bold bg-gradient-to-r from-indigo-600 to-indigo-400 bg-clip-text text-transparent">
+              Exportando empleos...
+            </h2>
+            <p class="text-slate-500 dark:text-slate-400 text-sm max-w-[280px] mx-auto">
+              Exportando los detalles de las Descripciones de Empleo
+            </p>
           </div>
-          <div class="h-3 w-full bg-slate-100 dark:bg-slate-700/50 rounded-full overflow-hidden shadow-inner flex">
-            <div 
-              class="h-full bg-indigo-500 relative transition-all duration-300 ease-out"
-              :class="state.exportProgress === 100 ? 'bg-emerald-500' : ''"
-              :style="{ width: `${state.exportProgress}%` }"
-            >
-              <!-- Animated shimmering effect -->
-              <div class="absolute top-0 bottom-0 w-24 bg-gradient-to-r from-transparent via-white/30 to-transparent -translate-x-full animate-[shimmer_1.5s_infinite] skew-x-[-20deg]"></div>
+
+          <!-- Progress Bar -->
+          <div class="w-full space-y-2 mt-2">
+            <div class="flex justify-between text-xs font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+              <span>Progreso</span>
+              <span>{{ state.exportCurrent }} / {{ state.exportTotal }}</span>
+            </div>
+            <div class="h-3 w-full bg-slate-100 dark:bg-slate-700/50 rounded-full overflow-hidden shadow-inner flex">
+              <div 
+                class="h-full bg-indigo-500 relative transition-all duration-300 ease-out"
+                :style="{ width: `${state.exportProgress}%` }"
+              >
+                <!-- Animated shimmering effect -->
+                <div class="absolute top-0 bottom-0 w-24 bg-gradient-to-r from-transparent via-white/30 to-transparent -translate-x-full animate-[shimmer_1.5s_infinite] skew-x-[-20deg]"></div>
+              </div>
+            </div>
+            <div class="text-center pt-1 font-bold text-lg text-indigo-600 dark:text-indigo-400">
+              {{ Math.round(state.exportProgress) }}%
             </div>
           </div>
-          <div class="text-center pt-1 font-bold text-lg" :class="state.exportProgress === 100 ? 'text-emerald-500' : 'text-indigo-600 dark:text-indigo-400'">
-            {{ Math.round(state.exportProgress) }}%
+        </template>
+
+        <!-- Summary View (Shown when finished) -->
+        <template v-else>
+          <div class="flex flex-col items-center gap-4 w-full">
+            <div class="h-16 w-16 bg-emerald-100 dark:bg-emerald-900/30 rounded-full flex items-center justify-center text-emerald-600 dark:text-emerald-400 mb-2">
+              <svg xmlns="http://www.w3.org/2000/svg" class="h-10 w-10" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7" />
+              </svg>
+            </div>
+            
+            <h2 class="text-2xl font-bold text-slate-800 dark:text-slate-100">Exportación Lista</h2>
+            
+            <div class="w-full grid grid-cols-2 gap-3 mt-2">
+              <div class="bg-slate-50 dark:bg-slate-700/50 p-4 rounded-2xl border border-slate-100 dark:border-slate-600 text-center">
+                <p class="text-[10px] font-bold uppercase text-slate-400 dark:text-slate-500 mb-1">Exitosos</p>
+                <p class="text-2xl font-bold text-emerald-600 dark:text-emerald-400">{{ state.exportSummary.success }}</p>
+              </div>
+              <div class="bg-slate-50 dark:bg-slate-700/50 p-4 rounded-2xl border border-slate-100 dark:border-slate-600 text-center">
+                <p class="text-[10px] font-bold uppercase text-slate-400 dark:text-slate-500 mb-1">Errores</p>
+                <p class="text-2xl font-bold text-red-500 dark:text-red-400">{{ state.exportSummary.errors }}</p>
+              </div>
+            </div>
+
+            <!-- Error list if exists -->
+            <div v-if="state.exportSummary.details.length > 0" class="w-full mt-2">
+              <p class="text-[10px] font-bold uppercase text-slate-400 dark:text-slate-500 mb-2 px-1">Detalles de errores</p>
+              <div class="max-h-32 overflow-y-auto custom-scrollbar bg-slate-50 dark:bg-slate-900/50 rounded-xl p-3 text-[11px] text-slate-500 dark:text-slate-400 border border-slate-100 dark:border-slate-800 italic">
+                <div v-for="(err, idx) in state.exportSummary.details" :key="idx" class="mb-1 last:mb-0">
+                  {{ err }}
+                </div>
+              </div>
+            </div>
+
+            <button 
+              @click="closeExport"
+              class="w-full mt-4 py-3 bg-indigo-600 text-white font-bold rounded-xl hover:bg-indigo-700 active:scale-95 transition-all shadow-lg shadow-indigo-100 dark:shadow-indigo-900/30"
+            >
+              Entendido
+            </button>
           </div>
-        </div>
+        </template>
       </div>
     </div>
   </main>
