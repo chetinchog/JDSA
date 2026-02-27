@@ -4,6 +4,10 @@ import { ScrapeJob, ExportJSON, BulkScrape, ExportBulkJSON, OpenURL, SetSessionC
 import { EventsOn } from '../wailsjs/runtime/runtime'
 import SplashScreen from './components/SplashScreen.vue'
 import ScrapingLoader from './components/ScrapingLoader.vue'
+import LoginScreen from './components/LoginScreen.vue'
+import WaitingScreen from './components/WaitingScreen.vue'
+import { auth, onUserSnapshot, updateUserCookie } from './firebase'
+import { onAuthStateChanged, signOut } from 'firebase/auth'
 
 const isDark = ref(false)
 const showSplash = ref(true)
@@ -43,7 +47,11 @@ const state = reactive({
   hasSavedCookie: false,
   // Live export counters
   exportSuccess: 0,
-  exportErrors: 0
+  exportErrors: 0,
+  // Auth state
+  authStatus: 'loading', // 'loading', 'unauthenticated', 'waiting', 'authenticated'
+  user: null,
+  userData: null
 })
 
 const toggleTheme = () => {
@@ -63,6 +71,47 @@ const checkCookies = async () => {
         state.showCookieInput = true
     } else if (state.bulkPlatform !== 'indeed') {
         state.showCookieInput = false
+    }
+}
+
+const checkAuth = () => {
+  onAuthStateChanged(auth, (user) => {
+    if (user) {
+      state.user = user
+      onUserSnapshot(user.uid, (data) => {
+        state.userData = data
+        if (data && data.is_enabled) {
+          state.authStatus = 'authenticated'
+          
+          // Apply stored cookies for indeed
+          if (data.cookies_indeed) {
+             SetSessionCookie('indeed.com', data.cookies_indeed).then(() => checkCookies())
+          }
+        } else {
+          state.authStatus = 'waiting'
+        }
+      })
+    } else {
+      state.authStatus = 'unauthenticated'
+      state.user = null
+      state.userData = null
+    }
+  })
+}
+
+const handleLoggedIn = () => {
+    // Rely on snapshot listener to change state
+}
+
+const handleWaitingApproval = () => {
+    // Rely on snapshot listener to change state
+}
+
+const doLogout = async () => {
+    try {
+        await signOut(auth);
+    } catch (err) {
+        console.error("Logout error", err);
     }
 }
 
@@ -146,7 +195,11 @@ const handleOpenLogin = () => {
 const handleSaveCookie = async () => {
     if (!state.manualCookie) return
     try {
-        await SetSessionCookie(state.bulkPlatform, state.manualCookie)
+        const platformKey = state.bulkPlatform === 'indeed' ? 'indeed.com' : state.bulkPlatform
+        await SetSessionCookie(platformKey, state.manualCookie)
+        if (state.user) {
+            await updateUserCookie(state.user.uid, state.bulkPlatform, state.manualCookie)
+        }
         state.isBlockedByLogin = false
         state.showCookieInput = false
         state.hasSavedCookie = true
@@ -308,6 +361,7 @@ onMounted(() => {
   })
 
   checkCookies()
+  checkAuth()
 })
 </script>
 
@@ -322,6 +376,15 @@ onMounted(() => {
     @cancel="handleCancelSearch"
   />
   
+  <!-- Loading Auth State -->
+  <div v-else-if="state.authStatus === 'loading'" class="h-screen w-full flex items-center justify-center bg-slate-50 dark:bg-slate-900">
+    <span class="animate-spin h-8 w-8 border-4 border-indigo-500/30 border-t-indigo-500 rounded-full"></span>
+  </div>
+
+  <LoginScreen v-else-if="state.authStatus === 'unauthenticated'" @logged-in="handleLoggedIn" @waiting-approval="handleWaitingApproval" />
+  
+  <WaitingScreen v-else-if="state.authStatus === 'waiting'" />
+
   <main v-else class="h-screen w-full p-6 pb-10 flex flex-col gap-6 overflow-hidden bg-slate-50/30 dark:bg-slate-900 transition-colors duration-300">
     <!-- Header -->
     <header class="flex items-center gap-4 shrink-0">
@@ -367,6 +430,15 @@ onMounted(() => {
         <svg v-else xmlns="http://www.w3.org/2000/svg" class="h-4.5 w-4.5 text-slate-500" viewBox="0 0 24 24" fill="currentColor">
           <path fill-rule="evenodd" d="M9.528 1.718a.75.75 0 01.162.819A8.97 8.97 0 009 6a9 9 0 009 9 8.97 8.97 0 003.463-.69.75.75 0 01.981.98 10.503 10.503 0 01-9.694 6.46c-5.799 0-10.5-4.701-10.5-10.5 0-4.368 2.667-8.112 6.46-9.694a.75.75 0 01.818.162z" clip-rule="evenodd"/>
         </svg>
+      </button>
+
+      <!-- Logout -->
+      <button 
+        @click="doLogout"
+        class="h-9 px-3 flex items-center justify-center rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-red-50 hover:text-red-500 dark:hover:bg-red-900/30 dark:hover:text-red-400 text-slate-500 transition-colors shadow-sm text-xs font-bold"
+        title="Cerrar sesión"
+      >
+        Salir
       </button>
     </header>
     

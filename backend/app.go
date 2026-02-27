@@ -48,7 +48,6 @@ func isValidJobURL(rawURL string) error {
 type App struct {
 	ctx          context.Context
 	registry     *ScraperRegistry
-	db           *Database
 	cancelSearch context.CancelFunc
 	cancelMu     sync.Mutex
 }
@@ -66,31 +65,11 @@ func NewApp() *App {
 // so we can call the runtime methods
 func (a *App) Startup(ctx context.Context) {
 	a.ctx = ctx
-	a.db = NewDatabase()
-	a.loadCookies()
 }
 
-func (a *App) loadCookies() {
-	if a.db == nil {
-		return
-	}
-
-	// We only have indeed for now
-	cookie, err := a.db.GetConfig("cookie_indeed.com")
-	if err == nil && cookie != "" {
-		if s, err := a.registry.GetScraper("indeed.com"); err == nil {
-			s.SetSessionCookie(cookie)
-		}
-	}
-}
-
-func (a *App) saveCookies() {
-	if a.db == nil {
-		return
-	}
-
-	if s, err := a.registry.GetScraper("indeed.com"); err == nil {
-		_ = a.db.SetConfig("cookie_indeed.com", s.GetSessionCookie())
+func (a *App) LoadCookiesFromFrontend(platform, cookie string) {
+	if s, err := a.registry.GetScraper(platform); err == nil {
+		s.SetSessionCookie(cookie)
 	}
 }
 
@@ -155,7 +134,11 @@ func (a *App) SetSessionCookie(platform string, cookie string) error {
 		return err
 	}
 	scraper.SetSessionCookie(cookie)
-	a.saveCookies()
+	// Optionally emit an event to the frontend to save this to Firebase
+	runtime.EventsEmit(a.ctx, "cookie-updated", map[string]string{
+		"platform": platform,
+		"cookie":   cookie,
+	})
 	return nil
 }
 
