@@ -68,10 +68,11 @@ const onSplashFinish = () => {
 const checkCookies = async () => {
     const hasCookie = await CheckSessionCookie(state.bulkPlatform)
     state.hasSavedCookie = hasCookie
-    if (!hasCookie && state.bulkPlatform === 'indeed') {
-        state.showCookieInput = true
-    } else if (state.bulkPlatform !== 'indeed') {
+    // If we have a cookie, we don't show the input unless explicitly opened
+    if (hasCookie) {
         state.showCookieInput = false
+    } else if (state.bulkPlatform === 'indeed') {
+        state.showCookieInput = true
     }
 }
 
@@ -90,6 +91,7 @@ const checkAuth = () => {
              console.log("Syncing Indeed cookie from Firebase to Backend...")
              await SetSessionCookie('indeed', firebaseCookie)
              state.lastCheckedCookie = firebaseCookie
+             state.manualCookie = firebaseCookie
              await checkCookies()
           } else {
              console.log("No Indeed cookie found in Firebase.")
