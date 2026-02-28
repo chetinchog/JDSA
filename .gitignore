@@ -40,3 +40,8 @@ release/
 
 # Temporary files
 tmp/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
