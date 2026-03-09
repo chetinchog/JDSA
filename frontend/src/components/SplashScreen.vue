@@ -49,7 +49,7 @@ onMounted(() => {
       
       <div class="loading-state">
         <div class="shimmer"></div>
-        <p class="loading-text">Iniciando JDSA Assistant...</p>
+        <p class="loading-text">Iniciando JDS Assistant...</p>
       </div>
 
       <!-- Decor elements -->
