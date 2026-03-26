@@ -93,6 +93,7 @@ func mergeCookies(c1, c2 string) string {
 type IndeedScraper struct {
 	jar       http.CookieJar
 	transport *IndeedTransport
+	config    ScraperConfig
 }
 
 // NewIndeedScraper creates a new IndeedScraper with a real jar for rotated tokens.
@@ -287,8 +288,20 @@ func (s *IndeedScraper) ScrapeSearch(ctx context.Context, query string, startOff
 		currentReferer = searchURL
 		page++
 
-		// Randomized delay to mimic human behavior (1s to 2.5s)
-		time.Sleep(time.Duration(1000+rand.Intn(1500)) * time.Millisecond)
+		// Using configurable delays
+		waitMin := s.config.WaitPagesMin * 1000
+		waitMax := s.config.WaitPagesMax * 1000
+		if waitMin == 0 && waitMax == 0 {
+			waitMin = 1000
+			waitMax = 2500
+		} else if waitMax < waitMin {
+			waitMax = waitMin + 1
+		}
+		sleepTime := waitMin
+		if waitMax > waitMin {
+			sleepTime += rand.Intn(waitMax - waitMin + 1)
+		}
+		time.Sleep(time.Duration(sleepTime) * time.Millisecond)
 	}
 
 	return SearchResponse{
@@ -299,17 +312,18 @@ func (s *IndeedScraper) ScrapeSearch(ctx context.Context, query string, startOff
 	}, nil
 }
 
-// SetSessionCookie sets the manual session cookie to bypass login walls.
-func (s *IndeedScraper) SetSessionCookie(cookie string) {
-	s.transport.SessionCookie = strings.TrimSpace(cookie)
+// SetConfig sets the scraper configuration including delays and session cookie.
+func (s *IndeedScraper) SetConfig(config ScraperConfig) {
+	s.config = config
+	s.transport.SessionCookie = strings.TrimSpace(config.SessionCookie)
 }
 
-// HasSessionCookie returns true if a session cookie is set.
-func (s *IndeedScraper) HasSessionCookie() bool {
+// HasValidConfig returns true if a session cookie is set.
+func (s *IndeedScraper) HasValidConfig() bool {
 	return s.transport.SessionCookie != ""
 }
 
-// GetSessionCookie returns the current session cookie.
-func (s *IndeedScraper) GetSessionCookie() string {
-	return s.transport.SessionCookie
+// GetConfig returns the current scraper config.
+func (s *IndeedScraper) GetConfig() ScraperConfig {
+	return s.config
 }

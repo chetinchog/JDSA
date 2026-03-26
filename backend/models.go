@@ -32,3 +32,11 @@ type SearchResponse struct {
 	NextOffset       int            `json:"nextOffset"`
 	IsBlockedByLogin bool           `json:"isBlockedByLogin"`
 }
+
+type ScraperConfig struct {
+	SessionCookie string `json:"session_cookie"`
+	WaitPagesMin  int    `json:"wait_pages_min"`
+	WaitPagesMax  int    `json:"wait_pages_max"`
+	WaitJobMin    int    `json:"wait_job_min"`
+	WaitJobMax    int    `json:"wait_job_max"`
+}

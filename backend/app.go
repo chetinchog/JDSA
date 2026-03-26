@@ -67,11 +67,7 @@ func (a *App) Startup(ctx context.Context) {
 	a.ctx = ctx
 }
 
-func (a *App) LoadCookiesFromFrontend(platform, cookie string) {
-	if s, err := a.registry.GetScraper(platform); err == nil {
-		s.SetSessionCookie(cookie)
-	}
-}
+
 
 // ScrapeJob extracts job information from a given URL using the appropriate scraper.
 func (a *App) ScrapeJob(targetURL string) (JobData, error) {
@@ -127,37 +123,37 @@ func (a *App) CancelSearch() {
 	}
 }
 
-// SetSessionCookie sets the manual session cookie for a platform.
-func (a *App) SetSessionCookie(platform string, cookie string) error {
+// SaveConfig saves the configuration for a platform.
+func (a *App) SaveConfig(platform string, config ScraperConfig) error {
 	scraper, err := a.registry.GetScraper(platform)
 	if err != nil {
 		return err
 	}
-	scraper.SetSessionCookie(cookie)
+	scraper.SetConfig(config)
 	// Optionally emit an event to the frontend to save this to Firebase
-	runtime.EventsEmit(a.ctx, "cookie-updated", map[string]string{
+	runtime.EventsEmit(a.ctx, "config-updated", map[string]interface{}{
 		"platform": platform,
-		"cookie":   cookie,
+		"config":   config,
 	})
 	return nil
 }
 
-// CheckSessionCookie returns true if the given platform has a cookie set.
-func (a *App) CheckSessionCookie(platform string) bool {
+// CheckConfig returns true if the given platform has a valid config set.
+func (a *App) CheckConfig(platform string) bool {
 	scraper, err := a.registry.GetScraper(platform)
 	if err != nil {
 		return false
 	}
-	return scraper.HasSessionCookie()
+	return scraper.HasValidConfig()
 }
 
-// GetSessionCookie returns the current session cookie for a platform.
-func (a *App) GetSessionCookie(platform string) (string, error) {
+// GetConfig returns the current config for a platform.
+func (a *App) GetConfig(platform string) (ScraperConfig, error) {
 	scraper, err := a.registry.GetScraper(platform)
 	if err != nil {
-		return "", err
+		return ScraperConfig{}, err
 	}
-	return scraper.GetSessionCookie(), nil
+	return scraper.GetConfig(), nil
 }
 
 // GetClipboardText returns the content of the system clipboard.
@@ -326,8 +322,21 @@ func (a *App) ExportBulkJSON(query string, platform string, results []SearchResu
 			"errors":  errorCount,
 		})
 
-		// Sleep between requests (1s to 2s)
-		time.Sleep(time.Duration(1000+rand.Intn(1000)) * time.Millisecond)
+		// Sleep between requests dynamically
+		config := scraper.GetConfig()
+		waitMin := config.WaitJobMin * 1000
+		waitMax := config.WaitJobMax * 1000
+		if waitMin == 0 && waitMax == 0 {
+			waitMin = 1000
+			waitMax = 2000
+		} else if waitMax < waitMin {
+			waitMax = waitMin + 1
+		}
+		sleepTime := waitMin
+		if waitMax > waitMin {
+			sleepTime += rand.Intn(waitMax - waitMin + 1)
+		}
+		time.Sleep(time.Duration(sleepTime) * time.Millisecond)
 	}
 
 	finalRes.SuccessCount = successCount

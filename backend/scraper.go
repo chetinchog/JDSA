@@ -14,12 +14,12 @@ type Scraper interface {
 	Scrape(targetURL string) (JobData, error)
 	// ScrapeSearch extracts a list of jobs from a search query.
 	ScrapeSearch(ctx context.Context, query string, start int) (SearchResponse, error)
-	// SetSessionCookie sets a custom cookie string to be used for requests.
-	SetSessionCookie(cookie string)
-	// HasSessionCookie returns true if a session cookie is currently set.
-	HasSessionCookie() bool
-	// GetSessionCookie returns the current session cookie.
-	GetSessionCookie() string
+	// SetConfig sets the scraper configuration including delays and cookies.
+	SetConfig(config ScraperConfig)
+	// HasValidConfig returns true if a session cookie or valid config is currently set.
+	HasValidConfig() bool
+	// GetConfig returns the current scraper configuration.
+	GetConfig() ScraperConfig
 }
 
 // ScraperRegistry holds all registered scrapers and selects the right one.

@@ -1,12 +1,12 @@
 <script setup>
 import { reactive, ref, onMounted, watch } from 'vue'
-import { ScrapeJob, ExportJSON, BulkScrape, ExportBulkJSON, OpenURL, SetSessionCookie, GetSessionCookie, CheckSessionCookie, GetClipboardText, CancelSearch } from '../wailsjs/go/backend/App'
+import { ScrapeJob, ExportJSON, BulkScrape, ExportBulkJSON, OpenURL, SaveConfig, GetConfig, CheckConfig, GetClipboardText, CancelSearch } from '../wailsjs/go/backend/App'
 import { EventsOn } from '../wailsjs/runtime/runtime'
 import SplashScreen from './components/SplashScreen.vue'
 import ScrapingLoader from './components/ScrapingLoader.vue'
 import LoginScreen from './components/LoginScreen.vue'
 import WaitingScreen from './components/WaitingScreen.vue'
-import { auth, onUserSnapshot, updateUserCookie } from './firebase'
+import { auth, onUserSnapshot, updateUserCookie, updateUserConfig } from './firebase'
 import { onAuthStateChanged, signOut } from 'firebase/auth'
 
 const isDark = ref(false)
@@ -42,7 +42,13 @@ const state = reactive({
   hasMore: false,
   isSearching: false,
   isBlockedByLogin: false,
-  manualCookie: '',
+  manualConfig: {
+    session_cookie: '',
+    wait_pages_min: 1,
+    wait_pages_max: 3,
+    wait_job_min: 1,
+    wait_job_max: 2
+  },
   showCookieInput: false,
   hasSavedCookie: false,
   // Live export counters
@@ -66,10 +72,10 @@ const onSplashFinish = () => {
 }
 
 const checkCookies = async () => {
-    const hasCookie = await CheckSessionCookie(state.bulkPlatform)
-    state.hasSavedCookie = hasCookie
-    // If we have a cookie, we don't show the input unless explicitly opened
-    if (hasCookie) {
+    const hasConfig = await CheckConfig(state.bulkPlatform)
+    state.hasSavedCookie = hasConfig
+    // If we have a config, we don't show the input unless explicitly opened
+    if (hasConfig) {
         state.showCookieInput = false
     } else if (state.bulkPlatform === 'indeed') {
         state.showCookieInput = true
@@ -85,16 +91,24 @@ const checkAuth = () => {
         if (data && data.is_enabled) {
           state.authStatus = 'authenticated'
           
-          // Apply stored cookies for indeed if they changed
-          const firebaseCookie = data.cookies_indeed || ''
-          if (firebaseCookie) {
-             console.log("Syncing Indeed cookie from Firebase to Backend...")
-             await SetSessionCookie('indeed', firebaseCookie)
-             state.lastCheckedCookie = firebaseCookie
-             state.manualCookie = firebaseCookie
+          // Apply stored configs for indeed if they changed
+          const firebaseConfig = data.config_indeed || null
+          if (firebaseConfig) {
+             console.log("Syncing Indeed config from Firebase to Backend...")
+             await SaveConfig('indeed', firebaseConfig)
+             state.lastCheckedCookie = firebaseConfig.session_cookie
+             state.manualConfig = { ...firebaseConfig }
+             await checkCookies()
+          } else if (data.cookies_indeed) {
+             // Migration
+             const migratedConfig = { session_cookie: data.cookies_indeed, wait_pages_min: 1, wait_pages_max: 3, wait_job_min: 1, wait_job_max: 2 }
+             console.log("Migrating older Indeed cookie from Firebase to new Config object...")
+             await SaveConfig('indeed', migratedConfig)
+             await updateUserConfig(user.uid, 'indeed', migratedConfig)
+             state.manualConfig = { ...migratedConfig }
              await checkCookies()
           } else {
-             console.log("No Indeed cookie found in Firebase.")
+             console.log("No Indeed config found in Firebase.")
              state.hasSavedCookie = false
              state.showCookieInput = true
           }
@@ -205,21 +219,27 @@ const handleOpenLogin = () => {
 }
 
 const handleSaveCookie = async () => {
-    if (!state.manualCookie) return
     state.loading = true
     try {
         const platformKey = state.bulkPlatform === 'indeed' ? 'indeed' : state.bulkPlatform
-        await SetSessionCookie(platformKey, state.manualCookie)
-        if (state.user) {
-            console.log("Saving cookie to Firebase for user:", state.user.uid)
-            await updateUserCookie(state.user.uid, state.bulkPlatform, state.manualCookie)
+        const configToSave = {
+            session_cookie: state.manualConfig.session_cookie,
+            wait_pages_min: Number(state.manualConfig.wait_pages_min) || 1,
+            wait_pages_max: Number(state.manualConfig.wait_pages_max) || 3,
+            wait_job_min: Number(state.manualConfig.wait_job_min) || 1,
+            wait_job_max: Number(state.manualConfig.wait_job_max) || 2
         }
-        state.lastCheckedCookie = state.manualCookie
+        await SaveConfig(platformKey, configToSave)
+        if (state.user) {
+            console.log("Saving config to Firebase for user:", state.user.uid)
+            await updateUserConfig(state.user.uid, platformKey, configToSave)
+        }
+        state.lastCheckedCookie = configToSave.session_cookie
         state.hasSavedCookie = true
         state.showCookieInput = false
         state.error = ''
     } catch (err) {
-        state.error = 'Error al guardar cookie: ' + err
+        state.error = 'Error al guardar configuración: ' + err
     } finally {
         state.loading = false
     }
@@ -229,7 +249,7 @@ const handlePasteCookie = async () => {
     try {
         const text = await GetClipboardText()
         if (text) {
-            state.manualCookie = text
+            state.manualConfig.session_cookie = text
         }
     } catch (err) {
         console.error('Clipboard error:', err)
@@ -612,16 +632,38 @@ onMounted(() => {
                 Pegar
               </button>
               <input 
-                v-model="state.manualCookie"
+                v-model="state.manualConfig.session_cookie"
                 type="password" 
                 placeholder="Session Cookie de Indeed..."
                 class="flex-1 px-4 py-2 text-[11px] rounded-xl border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all"
               />
+            </div>
+            
+            <div class="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-1">
+              <div class="flex flex-col gap-1">
+                <label class="text-[9px] text-slate-500 dark:text-slate-400 uppercase font-bold">Espera entre páginas (min seg)</label>
+                <input v-model.number="state.manualConfig.wait_pages_min" type="number" min="0" class="px-3 py-1.5 text-[11px] rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 w-full" />
+              </div>
+              <div class="flex flex-col gap-1">
+                <label class="text-[9px] text-slate-500 dark:text-slate-400 uppercase font-bold">Espera entre páginas (max seg)</label>
+                <input v-model.number="state.manualConfig.wait_pages_max" type="number" min="0" class="px-3 py-1.5 text-[11px] rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 w-full" />
+              </div>
+              <div class="flex flex-col gap-1">
+                <label class="text-[9px] text-slate-500 dark:text-slate-400 uppercase font-bold">Espera entre empleos (min seg)</label>
+                <input v-model.number="state.manualConfig.wait_job_min" type="number" min="0" class="px-3 py-1.5 text-[11px] rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 w-full" />
+              </div>
+              <div class="flex flex-col gap-1">
+                <label class="text-[9px] text-slate-500 dark:text-slate-400 uppercase font-bold">Espera entre empleos (max seg)</label>
+                <input v-model.number="state.manualConfig.wait_job_max" type="number" min="0" class="px-3 py-1.5 text-[11px] rounded-lg border border-slate-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-200 w-full" />
+              </div>
+            </div>
+
+            <div class="flex justify-end mt-1">
               <button 
                 @click="handleSaveCookie"
-                class="px-4 py-2 bg-indigo-600 text-white text-[11px] font-bold rounded-xl hover:bg-indigo-700 shadow-md shadow-indigo-100 dark:shadow-indigo-900/20 active:scale-95 transition-all"
+                class="px-6 py-2 bg-indigo-600 text-white text-[11px] font-bold rounded-xl hover:bg-indigo-700 shadow-md shadow-indigo-100 dark:shadow-indigo-900/20 active:scale-95 transition-all"
               >
-                Guardar
+                Guardar Configuración
               </button>
             </div>
           </div>

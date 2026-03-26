@@ -61,3 +61,10 @@ export const updateUserCookie = async (uid, platform, cookie) => {
     updateData[`cookies_${platform}`] = cookie;
     await setDoc(userRef, updateData, { merge: true });
 };
+
+export const updateUserConfig = async (uid, platform, config) => {
+    const userRef = doc(db, 'users', uid);
+    const updateData = {};
+    updateData[`config_${platform}`] = config;
+    await setDoc(userRef, updateData, { merge: true });
+};
