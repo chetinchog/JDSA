@@ -26,12 +26,18 @@ func (t *IndeedTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	modReq := req.Clone(req.Context())
 
 	// Apply headers uniformly to every request
-	modReq.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8")
-	modReq.Header.Set("Accept-Language", "es-AR,es;q=0.9,en;q=0.8")
-	modReq.Header.Set("Sec-Ch-Ua", `"Not A(Bit:Major";v="99", "Google Chrome";v="121", "Chromium";v="121"`)
+	modReq.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7")
+	modReq.Header.Set("Accept-Language", "es,en;q=0.9,en-US;q=0.8")
+	modReq.Header.Set("Cache-Control", "max-age=0")
+	modReq.Header.Set("Sec-Ch-Ua", `"Chromium";v="146", "Not-A.Brand";v="24", "Microsoft Edge";v="146"`)
+	modReq.Header.Set("Sec-Ch-Ua-Arch", `"x86"`)
+	modReq.Header.Set("Sec-Ch-Ua-Bitness", `"64"`)
+	modReq.Header.Set("Sec-Ch-Ua-Full-Version", `"146.0.3856.72"`)
+	modReq.Header.Set("Sec-Ch-Ua-Full-Version-List", `"Chromium";v="146.0.7680.154", "Not-A.Brand";v="24.0.0.0", "Microsoft Edge";v="146.0.3856.72"`)
 	modReq.Header.Set("Sec-Ch-Ua-Mobile", "?0")
+	modReq.Header.Set("Sec-Ch-Ua-Model", `""`)
 	modReq.Header.Set("Sec-Ch-Ua-Platform", `"Windows"`)
-	modReq.Header.Set("Sec-Ch-Ua-Platform-Version", `"10.0.0"`)
+	modReq.Header.Set("Sec-Ch-Ua-Platform-Version", `"19.0.0"`)
 	modReq.Header.Set("Sec-Fetch-Dest", "document")
 	modReq.Header.Set("Sec-Fetch-Mode", "navigate")
 	modReq.Header.Set("Sec-Fetch-Site", "same-origin")
@@ -113,7 +119,7 @@ func (s *IndeedScraper) CanHandle(host string) bool {
 }
 
 func getModernUA() string {
-	return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
+	return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36 Edg/146.0.0.0"
 }
 
 // newCollector creates a pre-configured colly collector with all required
@@ -222,6 +228,14 @@ func (s *IndeedScraper) ScrapeSearch(ctx context.Context, query string, startOff
 		}
 	})
 
+	c.OnError(func(r *colly.Response, err error) {
+		if r != nil && (r.StatusCode == 403 || r.StatusCode == 429 || r.StatusCode == 401) {
+			isBlocked = true
+		} else if err != nil && strings.Contains(err.Error(), "Forbidden") {
+			isBlocked = true
+		}
+	})
+
 	c.OnHTML("div.job_seen_beacon", func(e *colly.HTMLElement) {
 		var res SearchResult
 		link := e.DOM.Find("a.jcs-JobTitle")
@@ -266,23 +280,28 @@ func (s *IndeedScraper) ScrapeSearch(ctx context.Context, query string, startOff
 		}
 
 		currentStart := startOffset + (page * limit)
-		searchURL := fmt.Sprintf("https://ar.indeed.com/jobs?q=%s&start=%d", url.QueryEscape(query), currentStart)
+		searchURL := fmt.Sprintf("https://ar.indeed.com/jobs?q=%s&l=&from=searchOnDesktopSerp&start=%d", url.QueryEscape(query), currentStart)
 
 		countBefore := len(results)
 		err := c.Visit(searchURL)
 		if err != nil {
+			fmt.Printf("[IndeedScraper] Error visiting %s: %v\n", searchURL, err)
 			break
 		}
 
 		if isBlocked {
+			fmt.Printf("[IndeedScraper] Blocked (Captcha/Login) on page %d (URL: %s)\n", page, searchURL)
 			break
 		}
 
 		// If no new results found on this page, we've exhausted results
 		if len(results) <= countBefore {
+			fmt.Printf("[IndeedScraper] No new results on page %d. Found %d so far.\n", page, len(results))
 			if page > 0 {
 				break
 			}
+		} else {
+			fmt.Printf("[IndeedScraper] Page %d: Found %d new results. Total: %d\n", page, len(results)-countBefore, len(results))
 		}
 
 		currentReferer = searchURL
@@ -302,6 +321,18 @@ func (s *IndeedScraper) ScrapeSearch(ctx context.Context, query string, startOff
 			sleepTime += rand.Intn(waitMax - waitMin + 1)
 		}
 		time.Sleep(time.Duration(sleepTime) * time.Millisecond)
+	}
+
+	if len(results) == 0 {
+		reason := "Empty list (no job cards found)"
+		if isBlocked {
+			reason = "Blocked by Indeed (Captcha/Login required)"
+		} else if cancelled {
+			reason = "Search cancelled by user"
+		}
+		fmt.Printf("[IndeedScraper] ScrapeSearch finished with 0 results for query '%s'. Reason: %s\n", query, reason)
+	} else {
+		fmt.Printf("[IndeedScraper] ScrapeSearch finished with %d results for query '%s'. Blocked: %v\n", len(results), query, isBlocked)
 	}
 
 	return SearchResponse{

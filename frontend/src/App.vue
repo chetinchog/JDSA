@@ -1,11 +1,12 @@
 <script setup>
 import { reactive, ref, onMounted, watch } from 'vue'
-import { ScrapeJob, ExportJSON, BulkScrape, ExportBulkJSON, OpenURL, SaveConfig, GetConfig, CheckConfig, GetClipboardText, CancelSearch } from '../wailsjs/go/backend/App'
+import { ScrapeJob, ExportCSV, BulkScrape, ExportBulkCSV, OpenURL, SaveConfig, GetConfig, CheckConfig, GetClipboardText, CancelSearch } from '../wailsjs/go/backend/App'
 import { EventsOn } from '../wailsjs/runtime/runtime'
 import SplashScreen from './components/SplashScreen.vue'
 import ScrapingLoader from './components/ScrapingLoader.vue'
 import LoginScreen from './components/LoginScreen.vue'
 import WaitingScreen from './components/WaitingScreen.vue'
+import ToastNotification from './components/ToastNotification.vue'
 import { auth, onUserSnapshot, updateUserCookie, updateUserConfig } from './firebase'
 import { onAuthStateChanged, signOut } from 'firebase/auth'
 
@@ -58,7 +59,12 @@ const state = reactive({
   authStatus: 'loading', // 'loading', 'unauthenticated', 'waiting', 'authenticated'
   user: null,
   userData: null,
-  lastCheckedCookie: ''
+  lastCheckedCookie: '',
+  toast: {
+    show: false,
+    message: '',
+    type: 'error'
+  }
 })
 
 const toggleTheme = () => {
@@ -160,6 +166,18 @@ const setMode = (mode) => {
   state.error = ''
 }
 
+const showToast = (message, type = 'error') => {
+  state.toast.message = message
+  state.toast.type = type
+  state.toast.show = true
+}
+
+watch(() => state.error, (newVal) => {
+  if (newVal) {
+    showToast(newVal, 'error')
+  }
+})
+
 const doBulkScrap = async (isNew = true) => {
   if (!state.bulkQuery) {
     state.error = 'Por favor, ingresá una búsqueda.'
@@ -214,7 +232,7 @@ const handleCancelSearch = async () => {
 }
 
 const handleOpenLogin = () => {
-    const url = `https://ar.indeed.com/jobs?q=${encodeURIComponent(state.bulkQuery)}`
+    const url = `https://ar.indeed.com/jobs?q=${encodeURIComponent(state.bulkQuery)}&l=&from=searchOnDesktopSerp`
     OpenURL(url)
 }
 
@@ -282,7 +300,7 @@ const doBulkExport = async () => {
   state.exportFinished = false
   state.exportProgress = 0
   try {
-    const res = await ExportBulkJSON(state.bulkQuery, state.bulkPlatform, state.bulkResults, '')
+    const res = await ExportBulkCSV(state.bulkQuery, state.bulkPlatform, state.bulkResults, '')
     if (!state.exportFinished) {
 
         handleExportComplete(res)
@@ -320,7 +338,7 @@ const retryFailedExport = async () => {
   
   try {
     // Pass the original file path so backend appends to it instead of asking for a new file
-    const res = await ExportBulkJSON(state.bulkQuery, state.bulkPlatform, failedResults, state.exportSummary.filePath)
+    const res = await ExportBulkCSV(state.bulkQuery, state.bulkPlatform, failedResults, state.exportSummary.filePath)
     if (!state.exportFinished) {
 
         handleExportComplete(res)
@@ -357,7 +375,7 @@ const doScrap = async () => {
 const doExport = async () => {
   if (!state.result) return
   try {
-    await ExportJSON(state.result)
+    await ExportCSV(state.result)
   } catch (err) {
     state.error = 'Error al exportar: ' + err
   }
@@ -985,6 +1003,13 @@ onMounted(() => {
       </div>
     </div>
   </main>
+
+  <ToastNotification
+    :show="state.toast.show"
+    @update:show="state.toast.show = $event"
+    :message="state.toast.message"
+    :type="state.toast.type"
+  />
 </template>
 
 <style>

@@ -1,52 +1,55 @@
-# JDSA - Job Description Scraping Assistant
+# JDSA - Job Data Scraping Assistant
 
-JDSA es una herramienta de escritorio moderna diseñada para extraer y organizar información detallada de publicaciones de empleo de diversas plataformas.
+JDSA es una herramienta de escritorio moderna diseñada para extraer y organizar información detallada de publicaciones de empleo en diversas plataformas. Ideal para analistas de reclutamiento y buscadores de empleo enfocados en la organización eficiente de datos.
 
-## 🚀 Características
+## 🚀 Características Principales
 
-- **Extracción Precisa**: Captura Título, Empresa, Ubicación, ID de Empleo y URL de postulación.
-- **Búsqueda Masiva**: Permite buscar resultados masivos e iterar sobre ellos, exportando el listado completo automáticamente. Ahora con ordenamiento cronológico (más recientes primero) y manejo seguro de búsquedas sin resultados.
-- **Desduplicación Inteligente**: Descarta internamente registros orgánicos y patrocinados clonados para evitar basura en la exportación final.
-- **Aislamiento de Errores**: Filtra vacantes que resultan inaccesibles durante operaciones masivas (404/Not Found) notificando un resumen limpio.
-- **Descripción Completa**: Recupera la descripción íntegra del puesto manteniendo el formato y saltos de línea originales.
-- **Modo Claro/Oscuro**: Tema oscuro con toggle, persiste la preferencia y detecta el tema del sistema.
-- **Diseño Moderno**: Interfaz Material Design construida con Vue 3 y Tailwind CSS v4.
-- **Navegación Fluida**: Diseño de alto fijo con scroll interno especializado para descripciones largas.
-- **Exportación**: Guarda los datos scrapeados directamente en archivos JSON estructurados.
-- **Seguridad**: Validación de URLs con protección contra SSRF (bloquea IPs privadas, localhost, esquemas no-HTTP).
-- **Detección de Vacantes Expiradas**: Identifica automáticamente empleos que ya no están disponibles mediante señales de metadatos, selectores de alerta y datos estructurados, mostrando un badge de "Expirado".
-- **Anti-Bloqueo**: Implementa headers dinámicos y respaldo en datos estructurados (JSON-LD) para máxima estabilidad.
-- **Autenticación con Google**: Integración segura con Firebase Auth para acceso controlado.
-- **Persistencia en la Nube**: Guardado de cookies de sesión y preferencias de usuario en Firebase Firestore, permitiendo mantener sesiones activas entre reinicios.
-- **Gestión de Cuentas**: Sistema de activación de usuarios ("is_enabled") para control administrativo del acceso a la herramienta.
+- **Extracción Precisa**: Captura automáticamente datos clave como Título, Empresa, Ubicación, ID de Empleo y URL directa de postulación.
+- **Búsqueda Masiva Inteligente**: Permite buscar y exportar grandes volúmenes de ofertas organizadas cronológicamente (las más recientes primero).
+- **Control de Duplicados**: El sistema identifica y descarta automáticamente publicaciones repetidas o patrocinadas redundantes.
+- **Detección de Vacantes Expiradas**: Identifica de forma proactiva empleos que ya no están disponibles, agilizando el proceso de selección.
+- **Exportación en CSV**: Guarda los datos directamente en un archivo `.csv` estandarizado, listo para ser importado en bases de datos o planillas de cálculo.
+- **Gestión Automatizada de Bloqueos**: Cuenta con mecanismos de prevención y reintentos automáticos para asegurar que tu búsqueda no se interrumpa.
+- **Navegación Fluida**: Diseño de alto contraste con Modo Oscuro/Claro y previsualización completa de las descripciones del puesto sin salir de la app.
 
-## 🛠️ Tecnologías
+---
 
-- **Backend**: [Go 1.26](https://go.dev/) + [Colly](http://go-colly.org/)
-- **Frontend**: [Vue.js 3](https://vuejs.org/) + [Tailwind CSS v4](https://tailwindcss.com/)
-- **Desktop Framework**: [Wails v2](https://wails.io/)
+## 📖 Manual de Usuario Paso a Paso
 
-## 📦 Instalación y Uso
+### 1. Descarga e Instalación
+- Dirígete a la sección de **Releases** en este repositorio.
+- Descarga el archivo ejecutable (`jdsa.exe`) correspondiente a la última versión.
+- Al ser una herramienta portable, no requiere instalación. Simplemente haz doble clic para **Abrir** la aplicación.
 
-### Ejecutable (Windows)
-Este repositorio **no incluye el archivo .exe** por razones de tamaño y seguridad. Para obtenerlo, tenés dos opciones:
-1. **Compilarlo vos mismo** siguiendo las instrucciones de abajo.
-2. **Descargarlo** desde la sección de **Releases** de este repositorio (si están disponibles).
+### 2. Inicio de Sesión
+- Al abrir JDSA por primera vez, se te pedirá iniciar sesión.
+- Haz clic en el botón de **"Iniciar sesión con Google"**.
+- Serás redirigido a tu navegador predeterminado para autorizar el acceso. Una vez completado, podrás volver a la aplicación.
 
-### Desarrollo y Compilación
-Si deseás compilar el proyecto manualmente:
+### 3. Configuración y Carga de Cookies (Bypass de Seguridad)
+Para evitar que las plataformas bloqueen tus búsquedas de forma prematura, es fundamental proveer una "Cookie de Sesión" fresca desde tu navegador:
+1. Haz clic en el engranaje de **Configuración** (esquina superior derecha).
+2. Abre tu navegador web principal y navega a la plataforma de búsqueda (ej. `ar.indeed.com`).
+3. Presiona en JDSA el botón para **abrir el Login interactivo** y asegúrate de iniciar sesión en la plataforma y realizar al menos una búsqueda manual de prueba.
+4. Con una extensión de navegador o desde las Herramientas de Desarrollador, copia el valor de la cookie y pégalo en el recuadro **"Session Cookie"** de JDSA.
+5. Ajusta los **tiempos de espera (Wait Time)**. Recomendamos dejar pausas de entre 1 a 3 segundos entre páginas para evitar ser detectado por los sistemas anti-bot.
 
-1. Asegúrate de tener instalado **Go**, **Node.js** y **Wails CLI**.
-2. Clonar el repositorio.
-3. Ejecutar el asistente de compilación:
-   ```cmd
-   build.bat
-   ```
-   *Esto generará el ejecutable en la carpeta `release`.*
+### 4. Realizar una Búsqueda
+- En el menú lateral, selecciona la plataforma deseada.
+- Ingresa tu término de búsqueda (ej. "Rust developer") y presiona **Buscar**.
+- Durante la búsqueda, verás una barra de progreso. Si el flujo es interrumpido por medidas de seguridad de la plataforma, un cartel rojo te lo notificará y la aplicación esperará para que puedas actualizar tu cookie e intentar nuevamente gracias a su sistema de reintentos escalonados.
+
+### 5. Ver Detalles del Empleo
+- Una vez obtenidos los resultados, verás la lista de empleos en la pantalla principal.
+- Haz clic en cualquier tarjeta de empleo para abrir un panel interactivo y leer cuidadosamente la **descripción completa**. Aquí podrás confirmar si los requerimientos de la oferta coinciden con tus expectativas antes de exportarla.
+
+### 6. Exportar los Resultados
+- Cuando la búsqueda termine (o si la cancelas voluntariamente para analizar lo ya encontrado), presiona el botón **Exportar TODO a CSV**.
+- Elige una carpeta en tu computadora donde guardar el archivo.
+- Los datos se exportarán listos, con campos pre-procesados (como el código de País ISO) en el estándar correcto para su uso posterior en tus procesos de recursos humanos.
+
+---
 
 ## 📄 Licencia
 
 Este proyecto está bajo la Licencia MIT. Consulta el archivo [LICENSE](LICENSE) para más detalles.
-
----
-Herramienta eficiente para analistas de recruiting y buscadores de empleo enfocada en la organización de datos.
