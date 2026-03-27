@@ -1,6 +1,6 @@
 <script setup>
 import { ref } from 'vue';
-import { loginWithGoogle, getUserData, createUserData } from '../firebase';
+import { loginWithGoogle } from '../firebase';
 
 const emit = defineEmits(['logged-in', 'waiting-approval']);
 
@@ -12,30 +12,14 @@ const handleLogin = async () => {
   errorMsg.value = '';
   
   try {
-    const user = await loginWithGoogle();
-    
-    // Check if user exists in DB
-    let userData = await getUserData(user.uid);
-    if (!userData) {
-      // First time login, create user document
-      await createUserData(user);
-      userData = await getUserData(user.uid); // Fetch to ensure reactivity works later if needed
-    }
-
-    if (userData.is_enabled) {
-      emit('logged-in', { user, userData });
-    } else {
-      emit('waiting-approval', { user, userData });
-    }
+    // signInWithRedirect navigates the WebView to Google's auth page.
+    // The result is handled by getRedirectResult() in App.vue on startup.
+    await loginWithGoogle();
   } catch (error) {
-    if (error.code === 'auth/popup-closed-by-user') {
-      errorMsg.value = 'El inicio de sesión fue cancelado.';
-    } else {
-      errorMsg.value = 'Error al iniciar sesión: ' + error.message;
-    }
-  } finally {
+    errorMsg.value = 'Error al iniciar sesión: ' + error.message;
     isLoading.value = false;
   }
+  // Note: isLoading stays true because the page will redirect
 };
 </script>
 

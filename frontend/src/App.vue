@@ -7,7 +7,7 @@ import ScrapingLoader from './components/ScrapingLoader.vue'
 import LoginScreen from './components/LoginScreen.vue'
 import WaitingScreen from './components/WaitingScreen.vue'
 import ToastNotification from './components/ToastNotification.vue'
-import { auth, onUserSnapshot, updateUserCookie, updateUserConfig } from './firebase'
+import { auth, onUserSnapshot, updateUserCookie, updateUserConfig, getLoginResult } from './firebase'
 import { onAuthStateChanged, signOut } from 'firebase/auth'
 
 const isDark = ref(false)
@@ -414,6 +414,9 @@ onMounted(() => {
       handleExportComplete(res)
     }
   })
+
+  // Handle redirect result from Google Sign-In (needed for Wails WebView COOP restrictions)
+  getLoginResult().catch(err => console.error('Redirect result error:', err))
 
   checkCookies()
   checkAuth()

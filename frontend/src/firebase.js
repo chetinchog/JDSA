@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
+import { getAuth, GoogleAuthProvider, signInWithRedirect, getRedirectResult } from 'firebase/auth';
 import { getFirestore, doc, getDoc, setDoc, onSnapshot } from 'firebase/firestore';
 
 const firebaseConfig = {
@@ -18,13 +18,13 @@ export const db = getFirestore(app);
 export const googleProvider = new GoogleAuthProvider();
 
 export const loginWithGoogle = async () => {
-    try {
-        const result = await signInWithPopup(auth, googleProvider);
-        return result.user;
-    } catch (error) {
-        console.error("Error signing in with Google:", error);
-        throw error;
-    }
+    await signInWithRedirect(auth, googleProvider);
+};
+
+// Call this on app startup to retrieve the result after the redirect completes
+export const getLoginResult = async () => {
+    const result = await getRedirectResult(auth);
+    return result?.user ?? null;
 };
 
 export const getUserData = async (uid) => {
