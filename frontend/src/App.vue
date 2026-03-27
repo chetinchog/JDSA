@@ -7,7 +7,7 @@ import ScrapingLoader from './components/ScrapingLoader.vue'
 import LoginScreen from './components/LoginScreen.vue'
 import WaitingScreen from './components/WaitingScreen.vue'
 import ToastNotification from './components/ToastNotification.vue'
-import { auth, onUserSnapshot, updateUserCookie, updateUserConfig, getLoginResult } from './firebase'
+import { auth, onUserSnapshot, updateUserCookie, updateUserConfig } from './firebase'
 import { onAuthStateChanged, signOut } from 'firebase/auth'
 
 const isDark = ref(false)
@@ -45,10 +45,10 @@ const state = reactive({
   isBlockedByLogin: false,
   manualConfig: {
     session_cookie: '',
-    wait_pages_min: 1,
-    wait_pages_max: 3,
-    wait_job_min: 1,
-    wait_job_max: 2
+    wait_pages_min: 10,
+    wait_pages_max: 15,
+    wait_job_min: 10,
+    wait_job_max: 15
   },
   showCookieInput: false,
   hasSavedCookie: false,
@@ -242,10 +242,10 @@ const handleSaveCookie = async () => {
         const platformKey = state.bulkPlatform === 'indeed' ? 'indeed' : state.bulkPlatform
         const configToSave = {
             session_cookie: state.manualConfig.session_cookie,
-            wait_pages_min: Number(state.manualConfig.wait_pages_min) || 1,
-            wait_pages_max: Number(state.manualConfig.wait_pages_max) || 3,
-            wait_job_min: Number(state.manualConfig.wait_job_min) || 1,
-            wait_job_max: Number(state.manualConfig.wait_job_max) || 2
+            wait_pages_min: Number(state.manualConfig.wait_pages_min) || 10,
+            wait_pages_max: Number(state.manualConfig.wait_pages_max) || 15,
+            wait_job_min: Number(state.manualConfig.wait_job_min) || 10,
+            wait_job_max: Number(state.manualConfig.wait_job_max) || 15
         }
         await SaveConfig(platformKey, configToSave)
         if (state.user) {
@@ -414,9 +414,6 @@ onMounted(() => {
       handleExportComplete(res)
     }
   })
-
-  // Handle redirect result from Google Sign-In (needed for Wails WebView COOP restrictions)
-  getLoginResult().catch(err => console.error('Redirect result error:', err))
 
   checkCookies()
   checkAuth()

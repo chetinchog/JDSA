@@ -590,8 +590,8 @@ func (a *App) ExportBulkCSV(query string, platform string, results []SearchResul
 		waitMin := config.WaitJobMin * 1000
 		waitMax := config.WaitJobMax * 1000
 		if waitMin == 0 && waitMax == 0 {
-			waitMin = 1000
-			waitMax = 2000
+			waitMin = 10000
+			waitMax = 15000
 		} else if waitMax < waitMin {
 			waitMax = waitMin + 1
 		}

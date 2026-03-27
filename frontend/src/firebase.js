@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, signInWithRedirect, getRedirectResult } from 'firebase/auth';
+import { getAuth, GoogleAuthProvider, signInWithCredential, signInAnonymously } from 'firebase/auth';
 import { getFirestore, doc, getDoc, setDoc, onSnapshot } from 'firebase/firestore';
 
 const firebaseConfig = {
@@ -17,14 +17,25 @@ export const auth = getAuth(app);
 export const db = getFirestore(app);
 export const googleProvider = new GoogleAuthProvider();
 
-export const loginWithGoogle = async () => {
-    await signInWithRedirect(auth, googleProvider);
+// Used by system browser OAuth flow (LoginScreen)
+export const signInWithGoogleIdToken = async (idToken) => {
+    const credential = GoogleAuthProvider.credential(idToken);
+    const result = await signInWithCredential(auth, credential);
+    return result.user;
 };
 
-// Call this on app startup to retrieve the result after the redirect completes
-export const getLoginResult = async () => {
-    const result = await getRedirectResult(auth);
-    return result?.user ?? null;
+// Simple email registration via anonymous auth + Firestore
+export const registerWithEmail = async (email) => {
+    const result = await signInAnonymously(auth);
+    const user = result.user;
+    const userRef = doc(db, 'users', user.uid);
+    await setDoc(userRef, {
+        email: email.trim().toLowerCase(),
+        displayName: email.split('@')[0],
+        is_enabled: false,
+        created_at: new Date()
+    }, { merge: true });
+    return user;
 };
 
 export const getUserData = async (uid) => {

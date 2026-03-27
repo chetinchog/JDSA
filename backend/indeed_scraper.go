@@ -311,8 +311,8 @@ func (s *IndeedScraper) ScrapeSearch(ctx context.Context, query string, startOff
 		waitMin := s.config.WaitPagesMin * 1000
 		waitMax := s.config.WaitPagesMax * 1000
 		if waitMin == 0 && waitMax == 0 {
-			waitMin = 1000
-			waitMax = 2500
+			waitMin = 10000
+			waitMax = 15000
 		} else if waitMax < waitMin {
 			waitMax = waitMin + 1
 		}
