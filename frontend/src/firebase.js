@@ -1,5 +1,5 @@
 import { initializeApp } from 'firebase/app';
-import { getAuth, GoogleAuthProvider, signInWithCredential, signInAnonymously } from 'firebase/auth';
+import { getAuth, GoogleAuthProvider, signInWithCredential, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
 import { getFirestore, doc, getDoc, setDoc, onSnapshot } from 'firebase/firestore';
 
 const firebaseConfig = {
@@ -24,9 +24,15 @@ export const signInWithGoogleIdToken = async (idToken) => {
     return result.user;
 };
 
-// Simple email registration via anonymous auth + Firestore
-export const registerWithEmail = async (email) => {
-    const result = await signInAnonymously(auth);
+// Sign in with existing email and password
+export const loginWithEmail = async (email, password) => {
+    const result = await signInWithEmailAndPassword(auth, email.trim().toLowerCase(), password);
+    return result.user;
+};
+
+// Register via Email/Password + Firestore
+export const registerWithEmail = async (email, password) => {
+    const result = await createUserWithEmailAndPassword(auth, email.trim().toLowerCase(), password);
     const user = result.user;
     const userRef = doc(db, 'users', user.uid);
     await setDoc(userRef, {

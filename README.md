@@ -21,10 +21,12 @@ JDSA es una herramienta de escritorio moderna diseñada para extraer y organizar
 - Descarga el archivo ejecutable (`jdsa.exe`) correspondiente a la última versión.
 - Al ser una herramienta portable, no requiere instalación. Simplemente haz doble clic para **Abrir** la aplicación.
 
-### 2. Inicio de Sesión
+### 2. Inicio de Sesión / Registro
 - Al abrir JDSA por primera vez, se te pedirá iniciar sesión.
-- Haz clic en el botón de **"Iniciar sesión con Google"**.
-- Serás redirigido a tu navegador predeterminado para autorizar el acceso. Una vez completado, podrás volver a la aplicación.
+- Si no posees una cuenta, presiona en **"¿No tenés cuenta? Solicitar acceso"**.
+- Ingresa tu Email y una Contraseña, y haz clic en **Solicitar acceso**.
+- Tu cuenta será creada, pero deberás esperar a que un **Administrador la habilite** manualmente para poder utilizar la herramienta.
+- Una vez habilitado, simplemente ingresa tus credenciales en la pantalla principal para entrar. Puedes marcar la casilla **"Recordar mis datos localmente"** para no tener que escribirlos en tu próxima sesión.
 
 ### 3. Configuración y Carga de Cookies (Bypass de Seguridad)
 Para evitar que las plataformas bloqueen tus búsquedas de forma prematura, es fundamental proveer una "Cookie de Sesión" fresca desde tu navegador:
@@ -32,7 +34,7 @@ Para evitar que las plataformas bloqueen tus búsquedas de forma prematura, es f
 2. Abre tu navegador web principal y navega a la plataforma de búsqueda (ej. `ar.indeed.com`).
 3. Presiona en JDSA el botón para **abrir el Login interactivo** y asegúrate de iniciar sesión en la plataforma y realizar al menos una búsqueda manual de prueba.
 4. Con una extensión de navegador o desde las Herramientas de Desarrollador, copia el valor de la cookie y pégalo en el recuadro **"Session Cookie"** de JDSA.
-5. Ajusta los **tiempos de espera (Wait Time)**. Recomendamos dejar pausas de entre 1 a 3 segundos entre páginas para evitar ser detectado por los sistemas anti-bot.
+5. Ajusta los **tiempos de espera (Espera entre páginas y empleos)**. Por defecto, recomendamos dejar pausas de entre **10 a 15 segundos** para evitar ser bloqueado o baneado por los sistemas anti-bot exhaustivos de plataformas como Indeed.
 
 ### 4. Realizar una Búsqueda
 - En el menú lateral, selecciona la plataforma deseada.
