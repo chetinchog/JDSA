@@ -99,6 +99,9 @@ func (a *App) BulkScrape(query string, platform string, start int) (SearchRespon
 		return SearchResponse{}, err
 	}
 
+	PreventSleep()
+	defer AllowSleep()
+
 	// Create a cancellable context so the user can stop the search
 	searchCtx, cancel := context.WithCancel(a.ctx)
 	a.cancelMu.Lock()
@@ -462,6 +465,9 @@ func (a *App) OpenURL(targetURL string) {
 func (a *App) ExportBulkCSV(query string, platform string, results []SearchResult, existingFilePath string) (ExportResult, error) {
 	var finalRes ExportResult
 	now := time.Now().Format("200601021504")
+
+	PreventSleep()
+	defer AllowSleep()
 
 	// Format strategy name
 	strategy := strings.ToUpper(platform)
