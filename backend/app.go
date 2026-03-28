@@ -49,6 +49,7 @@ type App struct {
 	ctx          context.Context
 	registry     *ScraperRegistry
 	cancelSearch context.CancelFunc
+	cancelExport context.CancelFunc
 	cancelMu     sync.Mutex
 }
 
@@ -123,6 +124,15 @@ func (a *App) CancelSearch() {
 	defer a.cancelMu.Unlock()
 	if a.cancelSearch != nil {
 		a.cancelSearch()
+	}
+}
+
+// CancelExport cancels the currently running export.
+func (a *App) CancelExport() {
+	a.cancelMu.Lock()
+	defer a.cancelMu.Unlock()
+	if a.cancelExport != nil {
+		a.cancelExport()
 	}
 }
 
@@ -469,6 +479,17 @@ func (a *App) ExportBulkCSV(query string, platform string, results []SearchResul
 	PreventSleep()
 	defer AllowSleep()
 
+	exportCtx, cancel := context.WithCancel(a.ctx)
+	a.cancelMu.Lock()
+	a.cancelExport = cancel
+	a.cancelMu.Unlock()
+
+	defer func() {
+		a.cancelMu.Lock()
+		a.cancelExport = nil
+		a.cancelMu.Unlock()
+	}()
+
 	// Format strategy name
 	strategy := strings.ToUpper(platform)
 	if strategy == "" {
@@ -561,7 +582,14 @@ func (a *App) ExportBulkCSV(query string, platform string, results []SearchResul
 	errorCount := 0
 	var errorDetails []string
 
+	Loop:
 	for i, res := range results {
+		select {
+		case <-exportCtx.Done():
+			break Loop
+		default:
+		}
+
 		jobURL := fmt.Sprintf("https://ar.indeed.com/viewjob?jk=%s", res.JobID)
 
 		jobData, scrapeErr := scraper.Scrape(jobURL)
@@ -605,7 +633,14 @@ func (a *App) ExportBulkCSV(query string, platform string, results []SearchResul
 		if waitMax > waitMin {
 			sleepTime += rand.Intn(waitMax - waitMin + 1)
 		}
-		time.Sleep(time.Duration(sleepTime) * time.Millisecond)
+		
+		if i < len(results)-1 {
+			select {
+			case <-exportCtx.Done():
+				break Loop
+			case <-time.After(time.Duration(sleepTime) * time.Millisecond):
+			}
+		}
 	}
 
 	finalRes.SuccessCount = successCount

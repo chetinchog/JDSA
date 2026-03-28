@@ -1,6 +1,6 @@
 <script setup>
 import { reactive, ref, onMounted, watch } from 'vue'
-import { ScrapeJob, ExportCSV, BulkScrape, ExportBulkCSV, OpenURL, SaveConfig, GetConfig, CheckConfig, GetClipboardText, CancelSearch } from '../wailsjs/go/backend/App'
+import { ScrapeJob, ExportCSV, BulkScrape, ExportBulkCSV, OpenURL, SaveConfig, GetConfig, CheckConfig, GetClipboardText, CancelSearch, CancelExport } from '../wailsjs/go/backend/App'
 import { EventsOn } from '../wailsjs/runtime/runtime'
 import SplashScreen from './components/SplashScreen.vue'
 import ScrapingLoader from './components/ScrapingLoader.vue'
@@ -25,6 +25,7 @@ const state = reactive({
   isPlatformDropdownOpen: false,
   isExporting: false,
   exportFinished: false,
+  isCancelingExport: false,
   exportSummary: {
     success: 0,
     errors: 0,
@@ -231,6 +232,15 @@ const handleCancelSearch = async () => {
     }
 }
 
+const handleCancelExport = async () => {
+    state.isCancelingExport = true
+    try {
+        await CancelExport()
+    } catch (err) {
+        console.error('Cancel export error:', err)
+    }
+}
+
 const handleOpenLogin = () => {
     const url = `https://ar.indeed.com/jobs?q=${encodeURIComponent(state.bulkQuery)}&l=&from=searchOnDesktopSerp`
     OpenURL(url)
@@ -298,6 +308,7 @@ const doBulkExport = async () => {
   if (state.bulkResults.length === 0) return
   state.isExporting = true
   state.exportFinished = false
+  state.isCancelingExport = false
   state.exportProgress = 0
   try {
     const res = await ExportBulkCSV(state.bulkQuery, state.bulkPlatform, state.bulkResults, '')
@@ -314,6 +325,7 @@ const doBulkExport = async () => {
 const closeExport = () => {
   state.isExporting = false
   state.exportFinished = false
+  state.isCancelingExport = false
 }
 
 const retryFailedExport = async () => {
@@ -332,6 +344,7 @@ const retryFailedExport = async () => {
   if (failedResults.length === 0) return
 
   state.exportFinished = false
+  state.isCancelingExport = false
   state.exportProgress = 0
   state.exportSuccess = 0
   state.exportErrors = 0
@@ -951,6 +964,16 @@ onMounted(() => {
               <p class="text-lg font-bold text-red-500 dark:text-red-400">{{ state.exportErrors }}</p>
             </div>
           </div>
+          
+          <button 
+            @click="handleCancelExport"
+            :disabled="state.isCancelingExport"
+            class="w-full mt-2 py-2.5 font-bold rounded-xl transition-all outline-none border flex justify-center items-center gap-2 text-sm"
+            :class="state.isCancelingExport ? 'bg-slate-100 text-slate-400 border-slate-200 dark:bg-slate-800 dark:text-slate-500 dark:border-slate-700 cursor-not-allowed' : 'bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/40 active:scale-95 border-red-200 dark:border-red-800'"
+          >
+            <span v-if="state.isCancelingExport" class="animate-spin h-4 w-4 border-2 border-slate-400/30 border-t-slate-400 rounded-full"></span>
+            {{ state.isCancelingExport ? 'Deteniendo y Guardando...' : 'Detener y Guardar' }}
+          </button>
         </template>
 
         <!-- Summary View (Shown when finished) -->
