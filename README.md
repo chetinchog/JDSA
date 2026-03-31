@@ -29,12 +29,20 @@ JDSA es una herramienta de escritorio moderna diseñada para extraer y organizar
 - Una vez habilitado, simplemente ingresa tus credenciales en la pantalla principal para entrar. Puedes marcar la casilla **"Recordar mis datos localmente"** para no tener que escribirlos en tu próxima sesión.
 
 ### 3. Configuración y Carga de Cookies (Bypass de Seguridad)
-Para evitar que las plataformas bloqueen tus búsquedas de forma prematura, es fundamental proveer una "Cookie de Sesión" fresca desde tu navegador:
-1. Haz clic en el engranaje de **Configuración** (esquina superior derecha).
-2. Abre tu navegador web principal y navega a la plataforma de búsqueda (ej. `ar.indeed.com`).
-3. Presiona en JDSA el botón para **abrir el Login interactivo** y asegúrate de iniciar sesión en la plataforma y realizar al menos una búsqueda manual de prueba.
-4. Con una extensión de navegador o desde las Herramientas de Desarrollador, copia el valor de la cookie y pégalo en el recuadro **"Session Cookie"** de JDSA.
-5. Ajusta los **tiempos de espera (Espera entre páginas y empleos)**. Por defecto, recomendamos dejar pausas de entre **10 a 15 segundos** para evitar ser bloqueado o baneado por los sistemas anti-bot exhaustivos de plataformas como Indeed.
+Para evitar que las plataformas bloqueen tus búsquedas de forma prematura, es fundamental proveer una "Cookie de Sesión" fresca obtenida directamente desde tu navegador:
+1. Abre tu navegador web principal (como Chrome o Edge) y navega a la plataforma de búsqueda (ej. `ar.indeed.com`).
+2. Asegúrate de iniciar sesión en la plataforma con tu cuenta.
+3. Realiza una búsqueda cualquiera (por ejemplo, busca "Data Analyst") y espera a que carguen los resultados.
+4. Abre las **Herramientas de desarrollador** de tu navegador presionando la tecla **F12** en tu teclado (o haciendo clic derecho en cualquier parte de la página y seleccionando "Inspeccionar").
+5. En el panel que se abre, busca la pestaña que dice **"Red"** o **"Network"** (suele estar en la parte superior del panel).
+6. Cambia de página en los resultados de búsqueda o vuelve a buscar, para que aparezcan nuevas consultas en el panel de Red.
+7. En la lista de archivos y peticiones que aparece en el panel de Red, busca una solicitud que comience con el nombre **`jobs?q=...`** y haz clic sobre ella.
+8. En la sección que se abre a la derecha, asegúrate de estar en la pestaña que dice **"Headers"** (Encabezados).
+9. Desplázate hacia abajo hasta encontrar la sección **"Request Headers"** (Encabezados de solicitud) y busca el campo llamado **`cookie:`**.
+10. Haz clic derecho sobre el texto largo que aparece al lado de `cookie:` (o selecciónalo todo) y cópialo. ¡Esa es tu cookie de sesión!
+11. Ahora abre JDSA, y haz clic en el engranaje de **Configuración** (esquina superior derecha).
+12. Pega el valor copiado en el recuadro **"Session Cookie"** de JDSA.
+13. Ajusta los **tiempos de espera (Espera entre páginas y empleos)**. Por defecto, recomendamos dejar pausas de entre **10 a 15 segundos** para evitar ser bloqueado de forma rápida por los sistemas anti-bot.
 
 ### 4. Realizar una Búsqueda
 - En el menú lateral, selecciona la plataforma deseada.
