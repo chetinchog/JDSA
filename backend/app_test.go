@@ -179,3 +179,31 @@ func TestIndeedScraper_CanHandle(t *testing.T) {
 		})
 	}
 }
+
+func TestParseLocation(t *testing.T) {
+	tests := []struct {
+		name     string
+		location string
+		want     string
+	}{
+		{"general remote", "Remoto", "AR"},
+		{"home office", "Home Office", "AR"},
+		{"desde casa", "Trabajo desde casa", "AR"},
+		{"unknown location", "Ubicación Desconocida 123", "AR"},
+		{"empty location", "", "AR"},
+		{"remote US", "Remote-US", "US"},
+		{"explicit USA", "California, USA", "US"},
+		{"explicit Spain", "Madrid, España", "ES"},
+		{"explicit Argentina", "Buenos Aires, Argentina", "AR"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := parseLocation(tt.location)
+			if got != tt.want {
+				t.Errorf("parseLocation(%q) = %q, want %q", tt.location, got, tt.want)
+			}
+		})
+	}
+}
+

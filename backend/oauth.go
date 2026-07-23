@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -39,7 +40,7 @@ func (a *App) StartGoogleAuth(clientID string) error {
 	if clientID == "" {
 		msg := "GOOGLE_OAUTH_CLIENT_ID no configurado"
 		runtime.EventsEmit(a.ctx, "google-auth-error", msg)
-		return fmt.Errorf(msg)
+		return errors.New(msg)
 	}
 
 	// PKCE: code verifier + challenge (S256)

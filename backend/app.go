@@ -220,7 +220,7 @@ func parseLocation(loc string) string {
 		strings.Contains(text, "homeoffice"), strings.Contains(text, "home office"),
 		strings.Contains(text, "remote"), strings.Contains(text, "remoto"),
 		strings.Contains(text, "desde casa"):
-		return "NN"
+		return "AR"
 
 	// User mapped cases
 	case strings.Contains(text, "alabama"), strings.Contains(text, "alaska"), strings.Contains(text, "arizona"),
