@@ -207,6 +207,51 @@ func cleanScrapedText(input string, preserveNewlines bool) string {
 	return strings.TrimSpace(input)
 }
 
+// cleanCompanyName applies specialized cleanup to a company name scraped from Indeed.
+// Indeed injects CSS pseudo-selectors, media queries, and attribute selectors into the
+// text content of the company name node (e.g. `:visited:hover@media(...)[dir="rtl"] svg`).
+// This function strips those artifacts on top of the generic cleanScrapedText pass.
+func cleanCompanyName(input string) string {
+	// First apply generic cleanup (CSS blocks, CSS classes, HTML tags, entities, whitespace)
+	input = cleanScrapedText(input, false)
+
+	// Remove CSS pseudo-selectors chains (e.g. :visited, :hover, :focus-visible, :active, :focus)
+	rePseudo := regexp.MustCompile(`:[a-zA-Z-]+`)
+	input = rePseudo.ReplaceAllString(input, "")
+
+	// Remove CSS attribute selectors (e.g. [dir="rtl"] or [dir=""rtl""])
+	reAttr := regexp.MustCompile(`\[[^\]]*\]`)
+	input = reAttr.ReplaceAllString(input, "")
+
+	// Remove media queries (e.g. @media (prefers-reduced-motion: reduce))
+	reMedia := regexp.MustCompile(`@media[^)]*\)?`)
+	input = reMedia.ReplaceAllString(input, "")
+
+	// Remove any remaining lone @ characters
+	input = strings.ReplaceAll(input, "@", "")
+
+	// Remove stray unbalanced braces that cleanScrapedText leaves behind
+	// (cleanScrapedText only removes matched {…} pairs)
+	input = strings.ReplaceAll(input, "{", "")
+	input = strings.ReplaceAll(input, "}", "")
+
+	// Remove SVG/CSS keyword prefixes that can appear immediately glued to the company name
+	// (e.g. "svgVerisure" → "Verisure"). Must run AFTER whitespace collapse so the prefix
+	// is at the start of a word boundary with the real name or a whitespace boundary.
+	reLeadingSVG := regexp.MustCompile(`(?i)\bsvg([A-Z])`)
+	input = reLeadingSVG.ReplaceAllString(input, "$1")
+
+	// Also remove standalone svg/rtl/ltr tokens surrounded by whitespace
+	reKeywords := regexp.MustCompile(`(?i)\b(svg|rtl|ltr)\b`)
+	input = reKeywords.ReplaceAllString(input, "")
+
+	// Collapse any extra whitespace introduced by the removals above
+	reSpaces := regexp.MustCompile(`\s+`)
+	input = reSpaces.ReplaceAllString(input, " ")
+
+	return strings.TrimSpace(input)
+}
+
 func parseLocation(loc string) string {
 	text := strings.ToLower(loc)
 	

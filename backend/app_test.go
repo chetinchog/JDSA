@@ -124,6 +124,49 @@ func TestCleanScrapedText(t *testing.T) {
 	}
 }
 
+func TestCleanCompanyName(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{
+			name:  "bug reportado - pseudo-selectores, media query y svg pegado al nombre",
+			input: `:visited:hover:active:focus@media (prefers-reduced-motion: reduce)}:focus-visible[dir=""rtl""] svgVerisure Argentina Monitoreo de Alarmas S.A.C`,
+			want:  "Verisure Argentina Monitoreo de Alarmas S.A.C",
+		},
+		{
+			name:  "nombre limpio sin contaminacion",
+			input: "Google Argentina S.A.",
+			want:  "Google Argentina S.A.",
+		},
+		{
+			name:  "nombre con bloque CSS generico",
+			input: "{color: red} Empresa S.A.",
+			want:  "Empresa S.A.",
+		},
+		{
+			name:  "solo pseudo-selectores, sin nombre",
+			input: ":hover:focus",
+			want:  "",
+		},
+		{
+			name:  "nombre con espacios extra",
+			input: "   Acme Corp   ",
+			want:  "Acme Corp",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := cleanCompanyName(tt.input)
+			if got != tt.want {
+				t.Errorf("cleanCompanyName(%q) = %q, want %q", tt.input, got, tt.want)
+			}
+		})
+	}
+}
+
 // --- Strategy Pattern Tests ---
 
 func TestScraperRegistry_GetScraper(t *testing.T) {

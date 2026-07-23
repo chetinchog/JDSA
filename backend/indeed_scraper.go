@@ -186,7 +186,7 @@ func (s *IndeedScraper) Scrape(targetURL string) (JobData, error) {
 		return job, fmt.Errorf("error visiting URL: %v", err)
 	}
 
-	job.CompanyName = cleanScrapedText(job.CompanyName, false)
+	job.CompanyName = cleanCompanyName(job.CompanyName)
 	job.JobDescription = cleanScrapedText(job.JobDescription, true)
 
 	if job.JobTitle == "" && job.JobDescription == "" {
