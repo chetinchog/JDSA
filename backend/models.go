@@ -31,6 +31,9 @@ type SearchResponse struct {
 	HasMore          bool           `json:"hasMore"`
 	NextOffset       int            `json:"nextOffset"`
 	IsBlockedByLogin bool           `json:"isBlockedByLogin"`
+	BlockedReason    string         `json:"blockedReason,omitempty"`
+	FailedURL        string         `json:"failedURL,omitempty"`
+	HasDebugHTML     bool           `json:"hasDebugHTML,omitempty"`
 }
 
 type ScraperConfig struct {

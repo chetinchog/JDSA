@@ -8,6 +8,7 @@ import (
 	"net/http/cookiejar"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gocolly/colly/v2"
@@ -100,6 +101,9 @@ type IndeedScraper struct {
 	jar       http.CookieJar
 	transport *IndeedTransport
 	config    ScraperConfig
+	mu        sync.RWMutex
+	lastHTML  []byte
+	lastURL   string
 }
 
 // NewIndeedScraper creates a new IndeedScraper with a real jar for rotated tokens.
@@ -111,6 +115,19 @@ func NewIndeedScraper() *IndeedScraper {
 			Base: http.DefaultTransport,
 		},
 	}
+}
+
+func (s *IndeedScraper) setLastDebugHTML(html []byte, rawURL string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.lastHTML = html
+	s.lastURL = rawURL
+}
+
+func (s *IndeedScraper) GetLastDebugHTML() ([]byte, string) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.lastHTML, s.lastURL
 }
 
 // CanHandle returns true if the host contains "indeed".
@@ -152,6 +169,10 @@ func (s *IndeedScraper) Scrape(targetURL string) (JobData, error) {
 	}
 
 	c := s.newCollector()
+
+	c.OnResponse(func(r *colly.Response) {
+		s.setLastDebugHTML(r.Body, r.Request.URL.String())
+	})
 
 	c.OnHTML("h1.jobsearch-JobInfoHeader-title", func(e *colly.HTMLElement) {
 		job.JobTitle = strings.TrimSpace(e.Text)
@@ -205,6 +226,8 @@ func (s *IndeedScraper) ScrapeSearch(ctx context.Context, query string, startOff
 	c := s.newCollector()
 
 	isBlocked := false
+	blockedReason := ""
+	failedURL := ""
 	currentReferer := "https://ar.indeed.com/"
 	page := 0
 
@@ -213,26 +236,58 @@ func (s *IndeedScraper) ScrapeSearch(ctx context.Context, query string, startOff
 		r.Headers.Set("Referer", currentReferer)
 	})
 
-	c.OnHTML("title", func(e *colly.HTMLElement) {
-		title := strings.ToLower(e.Text)
-		if (strings.Contains(title, "iniciar sesión") && strings.Contains(title, "cuentas")) ||
-			strings.Contains(title, "captcha") || strings.Contains(title, "challenge") {
+	c.OnResponse(func(r *colly.Response) {
+		urlStr := r.Request.URL.String()
+		s.setLastDebugHTML(r.Body, urlStr)
+
+		if strings.Contains(urlStr, "/auth") || strings.Contains(urlStr, "captcha") {
 			isBlocked = true
+			failedURL = urlStr
+			blockedReason = fmt.Sprintf("Redirección de seguridad a '%s'", urlStr)
 		}
 	})
 
-	c.OnResponse(func(r *colly.Response) {
-		urlStr := r.Request.URL.String()
-		if strings.Contains(urlStr, "/auth") || strings.Contains(urlStr, "captcha") {
+	c.OnHTML("title", func(e *colly.HTMLElement) {
+		title := strings.ToLower(e.Text)
+		rawURL := e.Request.URL.String()
+
+		if (strings.Contains(title, "iniciar sesión") && strings.Contains(title, "cuentas")) || strings.Contains(title, "login") {
 			isBlocked = true
+			failedURL = rawURL
+			blockedReason = "La página requiere inicio de sesión (Indeed Accounts)"
+		} else if strings.Contains(title, "captcha") || strings.Contains(title, "challenge") ||
+			strings.Contains(title, "just a moment") || strings.Contains(title, "pardon our interruption") ||
+			strings.Contains(title, "security check") || strings.Contains(title, "attention required") ||
+			strings.Contains(title, "access denied") {
+			isBlocked = true
+			failedURL = rawURL
+			blockedReason = fmt.Sprintf("Bloqueo de seguridad / CAPTCHA (Título: '%s')", strings.TrimSpace(e.Text))
 		}
 	})
 
 	c.OnError(func(r *colly.Response, err error) {
-		if r != nil && (r.StatusCode == 403 || r.StatusCode == 429 || r.StatusCode == 401) {
-			isBlocked = true
-		} else if err != nil && strings.Contains(err.Error(), "Forbidden") {
-			isBlocked = true
+		if r != nil {
+			s.setLastDebugHTML(r.Body, r.Request.URL.String())
+			failedURL = r.Request.URL.String()
+			if r.StatusCode == 403 {
+				isBlocked = true
+				blockedReason = fmt.Sprintf("Acceso denegado (HTTP 403 Forbidden) en %s", failedURL)
+			} else if r.StatusCode == 429 {
+				isBlocked = true
+				blockedReason = fmt.Sprintf("Demasiadas peticiones (HTTP 429 Too Many Requests) en %s", failedURL)
+			} else if r.StatusCode == 401 {
+				isBlocked = true
+				blockedReason = fmt.Sprintf("No autorizado (HTTP 401) en %s", failedURL)
+			} else if r.StatusCode >= 500 {
+				blockedReason = fmt.Sprintf("Error de servidor Indeed (HTTP %d) en %s", r.StatusCode, failedURL)
+			}
+		} else if err != nil {
+			if strings.Contains(err.Error(), "Forbidden") {
+				isBlocked = true
+				blockedReason = "Acceso prohibido (Forbidden)"
+			} else {
+				blockedReason = fmt.Sprintf("Error de red/petición: %v", err)
+			}
 		}
 	})
 
@@ -286,11 +341,20 @@ func (s *IndeedScraper) ScrapeSearch(ctx context.Context, query string, startOff
 		err := c.Visit(searchURL)
 		if err != nil {
 			fmt.Printf("[IndeedScraper] Error visiting %s: %v\n", searchURL, err)
+			if failedURL == "" {
+				failedURL = searchURL
+			}
+			if blockedReason == "" {
+				blockedReason = fmt.Sprintf("Error al visitar %s: %v", searchURL, err)
+			}
 			break
 		}
 
 		if isBlocked {
 			fmt.Printf("[IndeedScraper] Blocked (Captcha/Login) on page %d (URL: %s)\n", page, searchURL)
+			if failedURL == "" {
+				failedURL = searchURL
+			}
 			break
 		}
 
@@ -323,6 +387,10 @@ func (s *IndeedScraper) ScrapeSearch(ctx context.Context, query string, startOff
 		time.Sleep(time.Duration(sleepTime) * time.Millisecond)
 	}
 
+	if failedURL == "" {
+		failedURL = fmt.Sprintf("https://ar.indeed.com/jobs?q=%s&l=&from=searchOnDesktopSerp&start=%d", url.QueryEscape(query), startOffset)
+	}
+
 	if len(results) == 0 {
 		reason := "Empty list (no job cards found)"
 		if isBlocked {
@@ -335,11 +403,16 @@ func (s *IndeedScraper) ScrapeSearch(ctx context.Context, query string, startOff
 		fmt.Printf("[IndeedScraper] ScrapeSearch finished with %d results for query '%s'. Blocked: %v\n", len(results), query, isBlocked)
 	}
 
+	lastHTML, _ := s.GetLastDebugHTML()
+
 	return SearchResponse{
 		Results:          results,
 		HasMore:          false, // We now scan all pages in one go
 		NextOffset:       startOffset + (page * limit),
 		IsBlockedByLogin: isBlocked,
+		BlockedReason:    blockedReason,
+		FailedURL:        failedURL,
+		HasDebugHTML:     len(lastHTML) > 0,
 	}, nil
 }
 

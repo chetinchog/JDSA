@@ -510,9 +510,74 @@ func (a *App) ExportCSV(job JobData) error {
 	return writeJobToCSV(writer, job)
 }
 
+// GetDebugHTML returns the last scraped HTML string and its URL for UI viewing.
+func (a *App) GetDebugHTML(platform string) (map[string]string, error) {
+	if platform == "" {
+		platform = "indeed"
+	}
+	scraper, err := a.registry.GetScraper(platform)
+	if err != nil {
+		return nil, err
+	}
+
+	htmlContent, urlStr := scraper.GetLastDebugHTML()
+	if len(htmlContent) == 0 {
+		return nil, fmt.Errorf("no hay contenido HTML de diagnóstico almacenado para %s", platform)
+	}
+
+	return map[string]string{
+		"html": string(htmlContent),
+		"url":  urlStr,
+	}, nil
+}
+
 // OpenURL opens the given URL in the default system browser
 func (a *App) OpenURL(targetURL string) {
 	runtime.BrowserOpenURL(a.ctx, targetURL)
+}
+
+// ExportDebugHTML saves the last scraped HTML content to a file.
+func (a *App) ExportDebugHTML(platform string) (string, error) {
+	if platform == "" {
+		platform = "indeed"
+	}
+	scraper, err := a.registry.GetScraper(platform)
+	if err != nil {
+		return "", err
+	}
+
+	htmlContent, urlStr := scraper.GetLastDebugHTML()
+	if len(htmlContent) == 0 {
+		return "", fmt.Errorf("no hay contenido HTML de diagnóstico almacenado para %s", platform)
+	}
+
+	now := time.Now().Format("20060102150405")
+	defaultName := fmt.Sprintf("debug_%s_%s.html", strings.ToLower(platform), now)
+
+	title := "Guardar HTML de Diagnóstico"
+	if urlStr != "" {
+		title = fmt.Sprintf("Guardar HTML de Diagnóstico (%s)", urlStr)
+	}
+
+	path, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
+		DefaultFilename: defaultName,
+		Title:           title,
+		Filters: []runtime.FileFilter{
+			{DisplayName: "HTML Files (*.html)", Pattern: "*.html"},
+		},
+	})
+	if err != nil {
+		return "", err
+	}
+	if path == "" {
+		return "", nil
+	}
+
+	if err := os.WriteFile(path, htmlContent, 0644); err != nil {
+		return "", fmt.Errorf("error al guardar archivo HTML: %v", err)
+	}
+
+	return path, nil
 }
 
 // ExportBulkCSV saves the list of jobs found in search as a CSV file, fetching full details for each

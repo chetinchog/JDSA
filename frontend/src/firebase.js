@@ -63,12 +63,17 @@ export const createUserData = async (user) => {
     }, { merge: true });
 };
 
-export const onUserSnapshot = (uid, callback) => {
+export const onUserSnapshot = (uid, callback, onError) => {
     const userRef = doc(db, 'users', uid);
     return onSnapshot(userRef, (docSnap) => {
         if (docSnap.exists()) {
             callback(docSnap.data());
+        } else {
+            callback(null);
         }
+    }, (error) => {
+        console.error("Firestore onUserSnapshot error:", error);
+        if (onError) onError(error);
     });
 };
 

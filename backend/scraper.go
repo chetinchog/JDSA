@@ -20,6 +20,8 @@ type Scraper interface {
 	HasValidConfig() bool
 	// GetConfig returns the current scraper configuration.
 	GetConfig() ScraperConfig
+	// GetLastDebugHTML returns the last response HTML content and its URL for debugging.
+	GetLastDebugHTML() ([]byte, string)
 }
 
 // ScraperRegistry holds all registered scrapers and selects the right one.

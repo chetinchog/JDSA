@@ -1,12 +1,13 @@
 <script setup>
 import { reactive, ref, onMounted, watch } from 'vue'
-import { ScrapeJob, ExportCSV, BulkScrape, ExportBulkCSV, OpenURL, SaveConfig, GetConfig, CheckConfig, GetClipboardText, CancelSearch, CancelExport } from '../wailsjs/go/backend/App'
+import { ScrapeJob, ExportCSV, BulkScrape, ExportBulkCSV, OpenURL, SaveConfig, GetConfig, CheckConfig, GetClipboardText, CancelSearch, CancelExport, ExportDebugHTML, GetDebugHTML } from '../wailsjs/go/backend/App'
 import { EventsOn } from '../wailsjs/runtime/runtime'
 import SplashScreen from './components/SplashScreen.vue'
 import ScrapingLoader from './components/ScrapingLoader.vue'
 import LoginScreen from './components/LoginScreen.vue'
 import WaitingScreen from './components/WaitingScreen.vue'
 import ToastNotification from './components/ToastNotification.vue'
+import HtmlViewerModal from './components/HtmlViewerModal.vue'
 import { auth, onUserSnapshot, updateUserCookie, updateUserConfig } from './firebase'
 import { onAuthStateChanged, signOut } from 'firebase/auth'
 
@@ -64,7 +65,13 @@ const state = reactive({
   toast: {
     show: false,
     message: '',
-    type: 'error'
+    type: 'error',
+    actions: []
+  },
+  htmlModal: {
+    show: false,
+    htmlContent: '',
+    targetUrl: ''
   }
 })
 
@@ -90,7 +97,16 @@ const checkCookies = async () => {
 }
 
 const checkAuth = () => {
+  // Timeout de seguridad: Si en 5 segundos Firebase no responde, forzamos unauthenticated para no quedar trabados en "loading"
+  const authTimeout = setTimeout(() => {
+    if (state.authStatus === 'loading') {
+      console.warn("Auth timeout reached. Defaulting to unauthenticated.")
+      state.authStatus = 'unauthenticated'
+    }
+  }, 5000)
+
   onAuthStateChanged(auth, (user) => {
+    clearTimeout(authTimeout)
     if (user) {
       state.user = user
       onUserSnapshot(user.uid, async (data) => {
@@ -122,6 +138,9 @@ const checkAuth = () => {
         } else {
           state.authStatus = 'waiting'
         }
+      }, (err) => {
+        console.error("User snapshot error:", err)
+        state.authStatus = 'waiting'
       })
     } else {
       state.authStatus = 'unauthenticated'
@@ -129,6 +148,10 @@ const checkAuth = () => {
       state.userData = null
       state.lastCheckedCookie = ''
     }
+  }, (err) => {
+    clearTimeout(authTimeout)
+    console.error("Auth state error:", err)
+    state.authStatus = 'unauthenticated'
   })
 }
 
@@ -167,14 +190,39 @@ const setMode = (mode) => {
   state.error = ''
 }
 
-const showToast = (message, type = 'error') => {
+const showToast = (message, type = 'error', actions = []) => {
   state.toast.message = message
   state.toast.type = type
+  state.toast.actions = actions
   state.toast.show = true
 }
 
+const handleExportDebugHTML = async () => {
+  try {
+    const savedPath = await ExportDebugHTML(state.bulkPlatform)
+    if (savedPath) {
+      showToast(`HTML guardado exitosamente en: ${savedPath}`, 'success')
+    }
+  } catch (err) {
+    showToast(`Error al guardar HTML de diagnóstico: ${err}`, 'error')
+  }
+}
+
+const handleViewResponseHTML = async () => {
+  try {
+    const res = await GetDebugHTML(state.bulkPlatform)
+    if (res && res.html) {
+      state.htmlModal.htmlContent = res.html
+      state.htmlModal.targetUrl = res.url || ''
+      state.htmlModal.show = true
+    }
+  } catch (err) {
+    showToast(`Error al cargar HTML de respuesta: ${err}`, 'error')
+  }
+}
+
 watch(() => state.error, (newVal) => {
-  if (newVal) {
+  if (newVal && !state.toast.show) {
     showToast(newVal, 'error')
   }
 })
@@ -210,14 +258,51 @@ const doBulkScrap = async (isNew = true) => {
     state.isBlockedByLogin = res.isBlockedByLogin
     
     if (state.bulkResults.length === 0) {
-        if (state.isBlockedByLogin) {
-            state.error = 'La búsqueda fue bloqueada por Indeed (requiere iniciar sesión).'
-        } else {
-            state.error = 'No se encontraron empleos para esa búsqueda.'
+        const failedURL = res.failedURL || `https://ar.indeed.com/jobs?q=${encodeURIComponent(state.bulkQuery)}&l=&from=searchOnDesktopSerp`
+        let errorMsg = res.blockedReason || 'No se encontraron empleos para esa búsqueda.'
+        if (state.isBlockedByLogin && !res.blockedReason) {
+            errorMsg = 'La búsqueda fue bloqueada por Indeed (requiere verificar acceso / CAPTCHA).'
         }
+        state.error = errorMsg
+
+        // Acciones interactivas para la notificación Toast
+        const toastActions = []
+        if (failedURL) {
+            toastActions.push({
+                label: 'Abrir en Navegador',
+                primary: true,
+                onClick: () => OpenURL(failedURL)
+            })
+        }
+        if (res.hasDebugHTML) {
+            toastActions.push({
+                label: 'Ver Respuesta',
+                primary: false,
+                onClick: handleViewResponseHTML
+            })
+            toastActions.push({
+                label: 'Guardar HTML',
+                primary: false,
+                onClick: handleExportDebugHTML
+            })
+        }
+        if (state.isBlockedByLogin || state.bulkPlatform === 'indeed') {
+            toastActions.push({
+                label: 'Configurar Cookie',
+                primary: false,
+                onClick: () => { state.showCookieInput = true }
+            })
+        }
+
+        showToast(errorMsg, 'error', toastActions)
     }
   } catch (err) {
-    state.error = 'Error al buscar: ' + err
+    const errorMsg = 'Error al buscar: ' + err
+    state.error = errorMsg
+    showToast(errorMsg, 'error', [
+      { label: 'Ver Respuesta', primary: false, onClick: handleViewResponseHTML },
+      { label: 'Guardar HTML', primary: false, onClick: handleExportDebugHTML }
+    ])
   } finally {
     state.loading = false
     state.isSearching = false
@@ -1032,6 +1117,15 @@ onMounted(() => {
     @update:show="state.toast.show = $event"
     :message="state.toast.message"
     :type="state.toast.type"
+    :actions="state.toast.actions"
+  />
+
+  <HtmlViewerModal
+    :show="state.htmlModal.show"
+    @update:show="state.htmlModal.show = $event"
+    :htmlContent="state.htmlModal.htmlContent"
+    :targetUrl="state.htmlModal.targetUrl"
+    @export="handleExportDebugHTML"
   />
 </template>
 
