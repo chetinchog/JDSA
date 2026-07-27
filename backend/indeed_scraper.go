@@ -27,27 +27,24 @@ func (t *IndeedTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	modReq := req.Clone(req.Context())
 
 	// Apply headers uniformly to every request
+	modReq.Header.Set("User-Agent", getModernUA())
 	modReq.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7")
-	modReq.Header.Set("Accept-Language", "es,en;q=0.9,en-US;q=0.8")
+	modReq.Header.Set("Accept-Language", "es-AR,es;q=0.9,en-US;q=0.8,en;q=0.7")
 	modReq.Header.Set("Cache-Control", "max-age=0")
-	modReq.Header.Set("Sec-Ch-Ua", `"Chromium";v="146", "Not-A.Brand";v="24", "Microsoft Edge";v="146"`)
-	modReq.Header.Set("Sec-Ch-Ua-Arch", `"x86"`)
-	modReq.Header.Set("Sec-Ch-Ua-Bitness", `"64"`)
-	modReq.Header.Set("Sec-Ch-Ua-Full-Version", `"146.0.3856.72"`)
-	modReq.Header.Set("Sec-Ch-Ua-Full-Version-List", `"Chromium";v="146.0.7680.154", "Not-A.Brand";v="24.0.0.0", "Microsoft Edge";v="146.0.3856.72"`)
+	modReq.Header.Set("Sec-Ch-Ua", `"Not(A:Brand";v="99", "Microsoft Edge";v="133", "Chromium";v="133"`)
 	modReq.Header.Set("Sec-Ch-Ua-Mobile", "?0")
-	modReq.Header.Set("Sec-Ch-Ua-Model", `""`)
 	modReq.Header.Set("Sec-Ch-Ua-Platform", `"Windows"`)
-	modReq.Header.Set("Sec-Ch-Ua-Platform-Version", `"19.0.0"`)
 	modReq.Header.Set("Sec-Fetch-Dest", "document")
 	modReq.Header.Set("Sec-Fetch-Mode", "navigate")
-	modReq.Header.Set("Sec-Fetch-Site", "same-origin")
 	modReq.Header.Set("Sec-Fetch-User", "?1")
 	modReq.Header.Set("Upgrade-Insecure-Requests", "1")
 
-	// Set a default Referer if not already present
+	// Set Referer and matching Sec-Fetch-Site
 	if modReq.Header.Get("Referer") == "" {
 		modReq.Header.Set("Referer", "https://ar.indeed.com/")
+		modReq.Header.Set("Sec-Fetch-Site", "none")
+	} else {
+		modReq.Header.Set("Sec-Fetch-Site", "same-origin")
 	}
 
 	// If we have manual cookies, we merge them with any cookies colly/jar already set.
@@ -55,8 +52,8 @@ func (t *IndeedTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 		existing := modReq.Header.Get("Cookie")
 		finalCookie := t.SessionCookie
 		if existing != "" {
-			// JAR cookies (existing) must overwrite manual ones because they contain
-			// the latest security rotations from the response of the previous page.
+			// Manual cookie (t.SessionCookie) must take precedence over JAR cookies
+			// to preserve the user's authenticated session.
 			finalCookie = mergeCookies(t.SessionCookie, existing)
 		}
 
@@ -86,8 +83,8 @@ func mergeCookies(c1, c2 string) string {
 		}
 	}
 
-	parse(c1)
-	parse(c2) // c2 (manual session) wins on conflicts
+	parse(c2) // jar cookies first
+	parse(c1) // c1 (manual session cookie) wins on conflicts!
 
 	var res []string
 	for k, v := range m {
@@ -136,7 +133,7 @@ func (s *IndeedScraper) CanHandle(host string) bool {
 }
 
 func getModernUA() string {
-	return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36 Edg/146.0.0.0"
+	return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36 Edg/133.0.0.0"
 }
 
 // newCollector creates a pre-configured colly collector with all required
